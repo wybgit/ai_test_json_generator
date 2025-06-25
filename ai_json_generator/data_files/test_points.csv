@@ -1,0 +1,13 @@
+\ufefftest_point_key,description,data_type
+default,测试算子默认参数和形状的基本功能,float32
+float32_4d,测试算子float32数据类型下四维输入场景,"float32"
+int8_4d,测试算子int8数据类型下四维输入场景,"int8"
+float32_2d,测试算子float32数据类型下二维输入场景,"float32"
+int8_2d,测试算子int8数据类型下二维输入场景,"int8"
+float32_3d,测试算子float32数据类型下三维输入场景,"float32"
+int8_3d,测试算子int8数据类型下三维输入场景,"int8"
+float32_offline,测试算子float32数据类型下离线输入场景,"float32"
+int8_offline,测试算子int8数据类型下离线输入场景,"int8"
+small_shape,测试算子小形状输入场景,"float32"
+large_shape,测试算子大形状输入场景,"float32"
+broadcast,测试算子支持广播场景,"float32"

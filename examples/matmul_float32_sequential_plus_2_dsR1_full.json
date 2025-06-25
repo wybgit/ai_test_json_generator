@@ -1,0 +1,99 @@
+{
+  "Case_Name": "MatMul_Add_Split_DefaultParams",
+  "Case_Purpose": "测试MatMul、Add和Split算子的默认参数和形状的基本功能，验证矩阵乘法、加法及分割的正确性",
+  "Opset_Version": 13,
+  "Model_Inputs": ["A", "B", "B_add"],
+  "Model_Outputs": ["split_output_0", "split_output_1"],
+  "Nodes": [
+      {
+          "Node_Name": "matmul_1",
+          "Op_Type": "MatMul",
+          "Inputs": [
+              {
+                  "Name": "A",
+                  "Shape": [1, 3, 224, 224],
+                  "Data_Type": "float32",
+                  "Data_Format": "Online"
+              },
+              {
+                  "Name": "B",
+                  "Shape": [1, 3, 224, 224],
+                  "Data_Type": "float32",
+                  "Data_Format": "Online"
+              }
+          ],
+          "Outputs": [
+              {
+                  "Name": "matmul_out",
+                  "Shape": [1, 3, 224, 224],
+                  "Data_Type": "float32"
+              }
+          ],
+          "Attributes": []
+      },
+      {
+          "Node_Name": "add_1",
+          "Op_Type": "Add",
+          "Inputs": [
+              {
+                  "Name": "matmul_out",
+                  "Shape": [1, 3, 224, 224],
+                  "Data_Type": "float32",
+                  "Data_Format": "Online"
+              },
+              {
+                  "Name": "B_add",
+                  "Shape": [1, 3, 224, 224],
+                  "Data_Type": "float32",
+                  "Data_Format": "Online"
+              }
+          ],
+          "Outputs": [
+              {
+                  "Name": "add_out",
+                  "Shape": [1, 3, 224, 224],
+                  "Data_Type": "float32"
+              }
+          ],
+          "Attributes": []
+      },
+      {
+          "Node_Name": "split_1",
+          "Op_Type": "Split",
+          "Inputs": [
+              {
+                  "Name": "add_out",
+                  "Shape": [1, 3, 224, 224],
+                  "Data_Type": "float32",
+                  "Data_Format": "Online"
+              },
+              {
+                  "Name": "split_values",
+                  "Shape": [2],
+                  "Data_Type": "int64",
+                  "Data_Format": "Offline",
+                  "Data_Value": [1, 2]
+              }
+          ],
+          "Outputs": [
+              {
+                  "Name": "split_output_0",
+                  "Shape": [1, 1, 224, 224],
+                  "Data_Type": "float32"
+              },
+              {
+                  "Name": "split_output_1",
+                  "Shape": [1, 2, 224, 224],
+                  "Data_Type": "float32"
+              }
+          ],
+          "Attributes": [
+              {
+                  "Name": "axis",
+                  "Type": "int",
+                  "Value": 1
+              }
+          ]
+      }
+  ]
+}

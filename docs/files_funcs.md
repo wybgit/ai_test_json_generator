@@ -1,0 +1,3 @@
+- generate_json.py 基础的功能脚本，指定prompt模板和模板中要替换的关键词，发送给LLM大模型返回json的内容并提取，保存到指定目录下。可指定输出的文件夹、文件名和文件后缀。
+- generate_operator_testcase.py 传入算子信息，从data_files下面获取算子的参数信息，调用generate_json.py进行单个op的json生成，是generate_json.py工具的生成算子json的实现
+- batch_generate_testcases.py 传入多个算子，是generate_operator_testcase.py的上层调用，目的是实现一次调用生成多个算子json用例。

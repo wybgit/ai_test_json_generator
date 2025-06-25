@@ -1,0 +1,14 @@
+\ufeffpattern_key,description,category,operator_types
+default,,基本连接,所有算子
+sequential,将算子按序连接，前一个算子的输出连接到下一个算子的输入,基本连接,所有算子
+parallel,将算子并行连接，所有算子共享同一个输入，输出分别独立,基本连接,所有算子
+branch,分支模式，第一个算子连接到多个分支算子，分支最终汇聚到最后一个算子,基本连接,所有算子
+multi_inputs,多输入模式，每个算子有独立的输入，输出汇聚到最后一个算子,基本连接,所有算子
+compute_activation,计算算子接激活算子的组合(如Conv+Relu/Conv+Sigmoid),算子组合,计算算子+激活算子
+compute_reshape,计算算子接形变算子的组合(如Conv+Reshape/Gemm+Transpose),算子组合,计算算子+变形算子
+activation_compute,激活算子接计算算子的组合(如Relu+Conv/Sigmoid+Add),算子组合,激活算子+计算算子
+memory_compute,内存搬运算子接计算算子的组合(如Reshape+Conv/Transpose+Gemm),算子组合,内存搬运算子+计算算子
+compute_memory,计算算子接内存搬运算子的组合(如Conv+Reshape/Add+Transpose),算子组合,计算算子+内存搬运算子
+conv_pooling,卷积算子接池化算子的组合(如Conv+MaxPool/Conv+AveragePool),算子组合,Conv+池化算子
+gemm_activation,矩阵乘法接激活算子的组合(如Gemm+Relu/MatMul+Sigmoid),算子组合,矩阵计算+激活算子
+multi_branch_add,多分支并行计算后相加的组合(多个计算分支后用Add汇聚),算子组合,多分支+Add 

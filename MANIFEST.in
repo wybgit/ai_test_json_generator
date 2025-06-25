@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include requirements.txt
+include CHANGELOG.md
+include ai_json_generator/config.json
+include ai_json_generator/version.py
+include ai_json_generator/*.py
+recursive-include ai_json_generator/prompts *
+recursive-include ai_json_generator/data_files * 

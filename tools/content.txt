@@ -1,0 +1,72 @@
+
+
+用例IR JSON如下
+
+```json
+{
+    \"Case_Name\": \"MatMul_Add_Test_Case\",
+    \"Case_Purpose\": \"Test MatMul and Add operators with shape visualization\",
+    \"Opset\": 13,
+    \"Model_Inputs\": [\"A\", \"B\", \"C\"],
+    \"Model_Outputs\": [\"D\"],
+    \"Nodes\": [
+        {
+            \"Node_Name\": \"matmul_node\",
+            \"Op_Type\": \"MatMul\",
+            \"Inputs\": [
+                {
+                    \"Name\": \"A\",
+                    \"Shape\": \"4,5\",
+                    \"Data_Type\": \"float32\",
+                    \"Data_Format\": \"Online\",
+                    \"Data_Range\": [-10.0, 10.0]
+                },
+                {
+                    \"Name\": \"B\",
+                    \"Shape\": \"5,6\",
+                    \"Data_Type\": \"float32\",
+                    \"Data_Format\":=\"Online\",
+                   =\"Data_Range\":[\-5.0,\5.0]
+                }
+            ],
+           =\"Outputs\":[
+                {
+                   =\"Name\":\"C\",
+                   =\"Shape\":\"4,6\",
+                   =\"Data_Type\":\"float32\"
+                }
+            ],
+           =\"Attributes\":[]
+        },
+        {
+           =\"Node_Name\":\"add_node\",
+           =\"Op_Type\":\"Add\",
+           =\"Inputs\":[
+                {
+                   =\"Name\":\"C\",
+                   =\"Shape\":\"4,6\",
+                   =\"Data_Type\":\"float32\",
+                   =\"Data_Format\":\"Online\"
+                },
+                {
+                   =\"Name\":\"D\",
+                   =\"Shape\":\"4,6\",
+                   =\"Data_Type\":\"float32\",
+                   =\"Data_Format\":\"Offline\",
+                   ="Data_Value":[1.0]*4*6
+                }
+            ],
+           ="Outputs":[
+                {
+                   ="Name":"E",
+                   ="Shape":"4,6",
+                   ="Data_Type":"float32"
+                }
+             ],
+            ="Attributes":[]
+         }
+     ]
+}
+```
+
+JSON输出完毕

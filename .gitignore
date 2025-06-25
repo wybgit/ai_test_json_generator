@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Logs
+*.log
+llm_generation.log
+
+# Output directories
+output/
+outputs/
+test_output/
+example_output/
+
+# Temporary files
+.coverage
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Generated config and backup
+test_config/
+backup/
+
+# Debug files
+*.prompt.txt
+*.attempt*.response.txt
+*.retry*.prompt.txt
+*.json.error 

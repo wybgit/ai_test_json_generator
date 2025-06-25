@@ -1,0 +1,6 @@
+IR模型描述应包含以下内容：
+- opset_import至少指定为13
+- graph部分需包含inputs、outputs完整定义
+- 每个节点需要有明确的node_name
+- 需要定义node_inputs和node_outputs
+- 属性设置需符合ONNX规范
