@@ -526,6 +526,7 @@ def run_irjson_convert(json_file: str, output_dir: str) -> bool:
 def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False,
                      test_point: Optional[str] = None, graph_pattern: Optional[str] = None,
                      add_req: Optional[str] = None, direct_prompt: Optional[str] = None,
+                     direct_request: Optional[str] = None,
                      convert_to_onnx: bool = False, max_retries: int = 1) -> bool:
     """Generate test case for the specified operator(s)."""
     try:
@@ -593,9 +594,6 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     direct_prompt_file=direct_prompt
                 )
             else:
-                # Use ./ prefix for Python paths to ensure we run the script in the current directory
-                from .generate_json import LLMJsonGenerator
-                
                 # Define paths to data files
                 data_dir = 'data_files'
                 operators_csv = find_resource_path(os.path.join(data_dir, 'onnx_operators.csv'))
@@ -604,33 +602,55 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                 test_points_csv = find_resource_path(os.path.join(data_dir, 'test_points.csv'))
                 graph_patterns_csv = find_resource_path(os.path.join(data_dir, 'graph_patterns.csv'))
                 
-                if not operators_csv:
-                    logger.error("Could not find operators CSV file")
-                    return False
+                # Initialize variables
+                operator_params = ""
+                op_type = "others"
+                is_multi_operator = False
                 
-                # Check if we're dealing with a multi-operator scenario (space in operator name)
-                is_multi_operator = ' ' in operator_string
-                operators_list = operator_string.split() if is_multi_operator else [operator_string]
-                
-                # Process each operator to get their parameters
-                all_operator_params = []
-                for op in operators_list:
-                    op_params = find_operator_params(op, operators_csv)
-                    if not op_params:
-                        logger.error(f"Could not find parameters for operator: {op}")
+                # Only check operators CSV if we have an operator string and not using direct_request only
+                if operator_string and not (direct_request and not operator_string):
+                    if not operators_csv:
+                        logger.error("Could not find operators CSV file")
                         return False
-                    all_operator_params.append(op_params)
-                
-                # Combine all operator parameters for multi-operator cases
-                if is_multi_operator:
-                    combined_params = "\n\n".join([f"算子: {op}\n{params}" for op, params in zip(operators_list, all_operator_params)])
-                    operator_params = combined_params
-                else:
-                    operator_params = all_operator_params[0]
+                    
+                    # Check if we're dealing with a multi-operator scenario (space in operator name)
+                    is_multi_operator = ' ' in operator_string
+                    operators_list = operator_string.split() if is_multi_operator else [operator_string]
+                    
+                    # Process each operator to get their parameters
+                    all_operator_params = []
+                    for op in operators_list:
+                        op_params = find_operator_params(op, operators_csv)
+                        if not op_params:
+                            logger.error(f"Could not find parameters for operator: {op}")
+                            return False
+                        all_operator_params.append(op_params)
+                    
+                    # Combine all operator parameters for multi-operator cases
+                    if is_multi_operator:
+                        combined_params = "\n\n".join([f"算子: {op}\n{params}" for op, params in zip(operators_list, all_operator_params)])
+                        operator_params = combined_params
+                        op_type = "composite"
+                    else:
+                        operator_params = all_operator_params[0]
+                        # Determine operator type for single operator
+                        if "输入:" in operator_params and "输出:" in operator_params:
+                            input_lines = [line for line in operator_params.split('\n') if line.strip().startswith("  - ") and "输入:" in operator_params.split('\n')[operator_params.split('\n').index(line)-1]]
+                            output_lines = [line for line in operator_params.split('\n') if line.strip().startswith("  - ") and "输出:" in operator_params.split('\n')[operator_params.split('\n').index(line)-1]]
+                            
+                            if len(input_lines) == 2 and len(output_lines) == 1:
+                                op_type = "binary arithmetic"
+                            elif len(input_lines) == 1 and len(output_lines) == 1:
+                                op_type = "unary"
                 
                 # Get test point information
                 test_point_content = ""
-                if test_points_csv and test_point:
+                if direct_request:
+                    # Use content from direct-request file
+                    logger.info(f"Using direct request file: {direct_request}")
+                    with open(direct_request, 'r', encoding='utf-8') as f:
+                        test_point_content = f.read()
+                elif test_points_csv and test_point:
                     test_points_dict = read_csv_to_dict(test_points_csv)
                     if test_point in test_points_dict:
                         test_point_data = test_points_dict[test_point]
@@ -678,24 +698,10 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                 if not additional_requirements:
                     additional_requirements = "无"
                 
-                # Determine operator type
-                if is_multi_operator:
-                    op_type = "composite"
-                else:
-                    op_type = "others"
-                    if "输入:" in operator_params and "输出:" in operator_params:
-                        input_lines = [line for line in operator_params.split('\n') if line.strip().startswith("  - ") and "输入:" in operator_params.split('\n')[operator_params.split('\n').index(line)-1]]
-                        output_lines = [line for line in operator_params.split('\n') if line.strip().startswith("  - ") and "输出:" in operator_params.split('\n')[operator_params.split('\n').index(line)-1]]
-                        
-                        if len(input_lines) == 2 and len(output_lines) == 1:
-                            op_type = "binary arithmetic"
-                        elif len(input_lines) == 1 and len(output_lines) == 1:
-                            op_type = "unary"
-                
                 # Create replacements
                 replacements = {
-                    "算子名": operator_string,
-                    "算子参数": operator_params,
+                    "算子名": operator_string if operator_string else "",
+                    "算子参数": operator_params if operator_string else "",
                     "算子类型": op_type,
                     "用例要求": test_point_content,
                     "IR_JSON要求": ir_json_format,
@@ -737,13 +743,19 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     
                     logger.info(f"Using template: {template_path}")
                 
-                # For multi-operator scenarios, use a combined name
-                if is_multi_operator:
-                    output_name = f"{'_'.join(operators_list)}_composite_testcase{retry_suffix}"
+                # Determine output name
+                if operator_string:
+                    if is_multi_operator:
+                        output_name = f"{'_'.join(operator_string.split())}_composite_testcase{retry_suffix}"
+                    else:
+                        output_name = f"{operator_string}_testcase{retry_suffix}"
                 else:
-                    output_name = f"{operator_string}_testcase{retry_suffix}"
+                    output_name = f"custom_testcase{retry_suffix}"
                 
-                logger.info(f"Generating test case for {operator_string}")
+                if operator_string:
+                    logger.info(f"Generating test case for {operator_string}")
+                else:
+                    logger.info("Generating test case with custom requirements")
                 
                 # Save the current prompt for potential retry
                 if template_path:
@@ -766,7 +778,10 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                 )
             
             if success:
-                logger.info(f"Successfully generated test case for {operator_string}")
+                if operator_string:
+                    logger.info(f"Successfully generated test case for {operator_string}")
+                else:
+                    logger.info("Successfully generated test case with custom requirements")
                 
                 # If convert_to_onnx is True, run irjson-convert
                 if convert_to_onnx:
@@ -835,6 +850,7 @@ def main():
     parser.add_argument('--graph-pattern', help='Specify a graph pattern key from graph_patterns.csv')
     parser.add_argument('--add-req', help='Add additional requirements txt')
     parser.add_argument('--direct-prompt', help='Path to a prompt file to use directly instead of using the template system')
+    parser.add_argument('--direct-request', help='Path to a txt file containing test case requirements to replace the default test point content')
     parser.add_argument('--convert-to-onnx', action='store_true', help='Convert generated JSON to ONNX model using irjson-convert')
     parser.add_argument('--max-retries', type=int, default=1, help='Maximum number of retry attempts for failed ONNX conversion')
 
@@ -844,9 +860,9 @@ def main():
     if not args.output_dir:
         args.output_dir = 'outputs'
     
-    # Check if operators are provided when not using direct prompt
-    if not args.operator and not args.direct_prompt:
-        logger.error("Please specify at least one operator name or provide a direct prompt file")
+    # Check if operators are provided when not using direct prompt or direct request
+    if not args.operator and not args.direct_prompt and not args.direct_request:
+        logger.error("Please specify at least one operator name, provide a direct prompt file, or provide a direct request file")
         return 1
     
     # Determine the operator string
@@ -859,6 +875,8 @@ def main():
         else:
             operator_string = ' '.join(args.operator)
         logger.info(f"Processing operators: {operator_string}")
+    elif args.direct_request:
+        logger.info("Using direct request without operator specification")
     
     success = generate_testcase(
         operator_string, 
@@ -868,6 +886,7 @@ def main():
         graph_pattern=args.graph_pattern,
         add_req=args.add_req,
         direct_prompt=args.direct_prompt,
+        direct_request=args.direct_request,
         convert_to_onnx=args.convert_to_onnx,
         max_retries=args.max_retries
     )
