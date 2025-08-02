@@ -1,1 +1,0 @@
-请帮我生成一个onnx模型结构，输入张量分别连接到三个并行的MatMul算子生成Q、K、V矩阵经过Transpose调整维度后与Q矩阵通过MatMul计算注意力分数，该分数通过Div除以由Sqrt生成的缩放因子，再经过Softmax算子生成注意力权重，最终与Value矩阵通过MatMul相乘得到输出。
