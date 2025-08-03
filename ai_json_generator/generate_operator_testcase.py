@@ -261,7 +261,7 @@ def format_test_point_info(test_point_data):
     return "\n".join(formatted)
 
 def read_file_content(file_path):
-    """Read content from a file."""
+    "Read content from a file."
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             return file.read()
@@ -270,7 +270,7 @@ def read_file_content(file_path):
         return ""
 
 def create_temp_file(content, prefix="tmp_", suffix=".txt"):
-    """Create a temporary file with the given content."""
+    "Create a temporary file with the given content."
     try:
         fd, path = tempfile.mkstemp(prefix=prefix, suffix=suffix)
         with os.fdopen(fd, 'w', encoding='utf-8') as tmp:
@@ -462,7 +462,7 @@ def find_resource_path(relative_path):
         logger.error(f"Error finding resource {relative_path}: {str(e)}")
         return None
 
-def run_irjson_convert(json_file: str, output_dir: str) -> bool:
+def run_irjson_convert(json_file: str, output_dir: str) -> Tuple[bool, Optional[str]]:
     """
     Run irjson-convert command to convert JSON to ONNX model.
     
@@ -471,7 +471,8 @@ def run_irjson_convert(json_file: str, output_dir: str) -> bool:
         output_dir: Output directory for the ONNX model
         
     Returns:
-        bool: True if conversion was successful, False otherwise
+        Tuple[bool, Optional[str]]: A tuple containing a boolean for success
+                                     and the path to the output model directory if successful.
     """
     try:
         # Ensure output directory exists
@@ -483,58 +484,82 @@ def run_irjson_convert(json_file: str, output_dir: str) -> bool:
         # Prepare the command
         cmd = f"irjson-convert {json_file} -o {output_dir}"
         
+        # To store the actual output directory from the command's stdout
+        actual_model_dir = None
+        
         # Run the command and capture output
         process = subprocess.Popen(
             cmd,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True
+            universal_newlines=True,
+            encoding='utf-8'
         )
         
         # Open log file for writing
         with open(log_file, 'w', encoding='utf-8') as f:
             # Process and handle output in real-time
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    # Write to log file
-                    f.write(output)
-                    f.flush()
-                    # Print to screen
-                    print(output.strip())
-                    sys.stdout.flush()
-        
-        # Get return code
-        return_code = process.poll()
+            for output in process.stdout:
+                # Write to log file
+                f.write(output)
+                f.flush()
+                # Print to screen
+                print(output.strip())
+                sys.stdout.flush()
+                
+                # Look for the output directory line
+                if "输出目录:" in output:
+                    # Extract the path, which is the part after the colon
+                    path_match = output.split("输出目录:", 1)
+                    if len(path_match) > 1:
+                        actual_model_dir = path_match[1].strip()
+                        logger.info(f"Detected model output directory: {actual_model_dir}")
+
+        # Wait for the process to complete and get the return code
+        return_code = process.wait()
         
         if return_code == 0:
             logger.info(f"Successfully converted {json_file} to ONNX model")
             logger.info(f"Conversion log saved to {log_file}")
-            return True
+            return True, actual_model_dir
         else:
             logger.error(f"Failed to convert {json_file} to ONNX model (return code: {return_code})")
             logger.info(f"Check {log_file} for details")
-            return False
+            return False, None
             
     except Exception as e:
         logger.error(f"Error running irjson-convert: {str(e)}")
-        return False
+        return False, None
 
 def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False,
                      test_point: Optional[str] = None, graph_pattern: Optional[str] = None,
                      add_req: Optional[str] = None, direct_prompt: Optional[str] = None,
                      direct_request: Optional[str] = None,
                      convert_to_onnx: bool = False, max_retries: int = 1) -> bool:
-    """Generate test case for the specified operator(s)."""
+    "Generate test case for the specified operator(s)."
+    # Ensure the base output directory exists first.
+    os.makedirs(output_dir, exist_ok=True)
+
+    process_dir = None
+    if convert_to_onnx:
+        # Use a fixed-name directory for processing.
+        process_dir = os.path.join(output_dir, "llm_process")
+        # Clean up previous failed runs if it exists
+        if os.path.exists(process_dir):
+            shutil.rmtree(process_dir)
+        os.makedirs(process_dir)
+        current_output_dir = process_dir
+        logger.info(f"Using process directory for intermediate files: {process_dir}")
+    else:
+        current_output_dir = output_dir
+
     try:
         # Import LLMJsonGenerator at the beginning
         from .generate_json import LLMJsonGenerator
         
-        # Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
+        # Create the actual output/process directory
+        os.makedirs(current_output_dir, exist_ok=True)
         
         # Initialize generator
         generator = LLMJsonGenerator()
@@ -546,19 +571,34 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
         last_json_content = None
         last_error_content = None
         
+        # Determine base_output_name before the loop
+        base_output_name = ""
+        if direct_prompt:
+            base_output_name = "operator_testcase"
+        elif operator_string:
+            is_multi_operator = ' ' in operator_string
+            if is_multi_operator:
+                base_output_name = f"{'_'.join(operator_string.split())}_composite_testcase"
+            else:
+                base_output_name = f"{operator_string}_testcase"
+        else:
+            base_output_name = "custom_testcase"
+
         while current_retry <= max_retries:
-            retry_suffix = f"_retry{current_retry}" if current_retry > 0 else ""
+            attempt_prefix = f"attempt_{current_retry}_"
             
             # If using direct prompt, we can skip all the template processing
             if direct_prompt:
                 logger.info(f"Using direct prompt file: {direct_prompt}")
-                output_name = f"operator_testcase{retry_suffix}"
                 
                 # Save the original prompt content for potential retry
                 if current_retry == 0:
                     with open(direct_prompt, 'r', encoding='utf-8') as f:
                         last_prompt = f.read()
-                
+                    # Save initial prompt
+                    with open(os.path.join(current_output_dir, f"initial_prompt.txt"), 'w', encoding='utf-8') as f:
+                        f.write(last_prompt)
+
                 # If this is a retry attempt, use the retry template
                 if current_retry > 0 and last_json_content and last_error_content:
                     # Create retry prompt using retry_testcase.prompt
@@ -568,25 +608,25 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                         return False
                     
                     with open(retry_template, 'r', encoding='utf-8') as f:
-                        retry_prompt = f.read()
+                        retry_prompt_content = f.read()
                     
                     # Fill in the retry template
-                    retry_prompt = retry_prompt.replace("{prompt内容}", last_prompt if last_prompt else "")
-                    retry_prompt = retry_prompt.replace("{IR_JSON内容}", last_json_content)
-                    retry_prompt = retry_prompt.replace("{报错内容}", last_error_content)
+                    retry_prompt_content = retry_prompt_content.replace("{prompt内容}", last_prompt if last_prompt else "")
+                    retry_prompt_content = retry_prompt_content.replace("{IR_JSON内容}", last_json_content)
+                    retry_prompt_content = retry_prompt_content.replace("{报错内容}", last_error_content)
                     
                     # Save the retry prompt to a temporary file
-                    temp_prompt_file = os.path.join(output_dir, f"retry_prompt{retry_suffix}.txt")
+                    temp_prompt_file = os.path.join(current_output_dir, f"retry_prompt.txt")
                     with open(temp_prompt_file, 'w', encoding='utf-8') as f:
-                        f.write(retry_prompt)
+                        f.write(retry_prompt_content)
                     
                     direct_prompt = temp_prompt_file
                 
                 success = generator.generate(
                     "",  # Empty template path since we're using direct prompt
-                    {},  # No replacements needed
-                    output_dir,
-                    output_name,
+                    {},
+                    current_output_dir,
+                    base_output_name,
                     "json",
                     max_retries=3,
                     debug=True,
@@ -605,7 +645,6 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                 # Initialize variables
                 operator_params = ""
                 op_type = "others"
-                is_multi_operator = False
                 
                 # Only check operators CSV if we have an operator string and not using direct_request only
                 if operator_string and not (direct_request and not operator_string):
@@ -613,9 +652,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                         logger.error("Could not find operators CSV file")
                         return False
                     
-                    # Check if we're dealing with a multi-operator scenario (space in operator name)
-                    is_multi_operator = ' ' in operator_string
-                    operators_list = operator_string.split() if is_multi_operator else [operator_string]
+                    operators_list = operator_string.split()
                     
                     # Process each operator to get their parameters
                     all_operator_params = []
@@ -627,7 +664,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                         all_operator_params.append(op_params)
                     
                     # Combine all operator parameters for multi-operator cases
-                    if is_multi_operator:
+                    if len(operators_list) > 1:
                         combined_params = "\n\n".join([f"算子: {op}\n{params}" for op, params in zip(operators_list, all_operator_params)])
                         operator_params = combined_params
                         op_type = "composite"
@@ -720,17 +757,17 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                         return False
                     
                     with open(retry_template, 'r', encoding='utf-8') as f:
-                        retry_prompt = f.read()
+                        retry_prompt_content = f.read()
                     
                     # Fill in the retry template
-                    retry_prompt = retry_prompt.replace("{prompt内容}", last_prompt if last_prompt else "")
-                    retry_prompt = retry_prompt.replace("{IR_JSON内容}", last_json_content)
-                    retry_prompt = retry_prompt.replace("{报错内容}", last_error_content)
+                    retry_prompt_content = retry_prompt_content.replace("{prompt内容}", last_prompt if last_prompt else "")
+                    retry_prompt_content = retry_prompt_content.replace("{IR_JSON内容}", last_json_content)
+                    retry_prompt_content = retry_prompt_content.replace("{报错内容}", last_error_content)
                     
                     # Save the retry prompt to a temporary file
-                    temp_prompt_file = os.path.join(output_dir, f"retry_prompt{retry_suffix}.txt")
+                    temp_prompt_file = os.path.join(current_output_dir, f"retry_prompt.txt")
                     with open(temp_prompt_file, 'w', encoding='utf-8') as f:
-                        f.write(retry_prompt)
+                        f.write(retry_prompt_content)
                     
                     direct_prompt = temp_prompt_file
                     template_path = ""
@@ -743,33 +780,26 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     
                     logger.info(f"Using template: {template_path}")
                 
-                # Determine output name
-                if operator_string:
-                    if is_multi_operator:
-                        output_name = f"{'_'.join(operator_string.split())}_composite_testcase{retry_suffix}"
-                    else:
-                        output_name = f"{operator_string}_testcase{retry_suffix}"
-                else:
-                    output_name = f"custom_testcase{retry_suffix}"
-                
                 if operator_string:
                     logger.info(f"Generating test case for {operator_string}")
                 else:
                     logger.info("Generating test case with custom requirements")
                 
                 # Save the current prompt for potential retry
-                if template_path:
+                if template_path and current_retry == 0:
                     with open(template_path, 'r', encoding='utf-8') as f:
                         current_prompt = f.read()
                     for key, value in replacements.items():
                         current_prompt = current_prompt.replace(f"{{{key}}}", value)
                     last_prompt = current_prompt
-                
+                    with open(os.path.join(current_output_dir, f"initial_prompt.txt"), 'w', encoding='utf-8') as f:
+                        f.write(last_prompt)
+
                 success = generator.generate(
                     template_path,
                     replacements,
-                    output_dir,
-                    output_name,
+                    current_output_dir,
+                    base_output_name,
                     "json",
                     max_retries=3,
                     debug=True,
@@ -782,44 +812,110 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     logger.info(f"Successfully generated test case for {operator_string}")
                 else:
                     logger.info("Successfully generated test case with custom requirements")
+
+                original_json_path = os.path.join(current_output_dir, f"{base_output_name}.json")
+                json_file = original_json_path  # Default in case of error
+                case_name = base_output_name
+
+                try:
+                    with open(original_json_path, 'r', encoding='utf-8') as f:
+                        json_data = json.load(f)
+
+                    case_name = json_data.get("Case_Name", base_output_name)
+                    case_name = re.sub(r'[\\/:*?"<>|]', '_', case_name)  # Sanitize for filename
+                    
+                    new_json_path = os.path.join(current_output_dir, f"{case_name}.json")
+                    if original_json_path != new_json_path:
+                        if os.path.exists(new_json_path):
+                            os.remove(new_json_path)
+                        os.rename(original_json_path, new_json_path)
+                        logger.info(f"Renamed output file to: {new_json_path}")
+                    json_file = new_json_path
+
+                except (IOError, json.JSONDecodeError, KeyError) as e:
+                    logger.error(f"Failed to process generated JSON for renaming: {e}. Proceeding with original filename.")
                 
                 # If convert_to_onnx is True, run irjson-convert
                 if convert_to_onnx:
-                    json_file = os.path.join(output_dir, f"{output_name}.json")
-                    
                     # Save the current JSON content for potential retry
                     with open(json_file, 'r', encoding='utf-8') as f:
                         last_json_content = f.read()
                     
-                    if run_irjson_convert(json_file, output_dir):
-                        # Check if the log contains failure indicators
-                        log_file = os.path.join(os.path.dirname(json_file), 'irjson_convert.log')
-                        if os.path.exists(log_file):
-                            with open(log_file, 'r', encoding='utf-8') as f:
-                                log_content = f.read()
-                                last_error_content = log_content
-                                if "失败" in log_content:
-                                    if current_retry < max_retries:
-                                        logger.warning(f"ONNX conversion failed, attempting retry {current_retry + 1}/{max_retries}")
-                                        current_retry += 1
-                                        continue
-                                    else:
-                                        logger.error("ONNX conversion failed after all retries")
-                                        return False
+                    conversion_success, model_path = run_irjson_convert(json_file, current_output_dir)
+                    if conversion_success:
+                        # Find the generated model directory
+                        try:
+                            # The actual model path is returned by run_irjson_convert
+                            src_path = model_path
+                            
+                            if src_path and os.path.isdir(src_path):
+                                model_dir_name = os.path.basename(src_path)
+                                dest_path = os.path.join(output_dir, model_dir_name)
+                                
+                                if os.path.exists(dest_path):
+                                    shutil.rmtree(dest_path)
+                                    logger.warning(f"Removed existing directory at destination: {dest_path}")
+
+                                shutil.move(src_path, dest_path)
+                                logger.info(f"Successfully moved model to {dest_path}")
+                                logger.info(f"Process files are kept in {process_dir}")
+                            elif src_path:
+                                logger.error(f"The detected model path is not a directory: '{src_path}'.")
+                                return False
+                            else:
+                                logger.error(f"Could not detect the converted model directory from converter output.")
+                                return False
+                        except Exception as e:
+                            logger.error(f"Error moving converted model: {e}")
+                            return False
+                        
                         return True
                     else:
+                        # This attempt failed, so we rename all related files with the attempt prefix.
+                        
                         # Save error log content for retry
-                        log_file = os.path.join(os.path.dirname(json_file), 'irjson_convert.log')
+                        log_file = os.path.join(current_output_dir, 'irjson_convert.log')
                         if os.path.exists(log_file):
                             with open(log_file, 'r', encoding='utf-8') as f:
                                 last_error_content = f.read()
+                            # Rename the log file for this attempt
+                            renamed_log_path = os.path.join(current_output_dir, f"{attempt_prefix}irjson_convert.log")
+                            os.rename(log_file, renamed_log_path)
+
+                        # Rename the failed JSON file
+                        if os.path.exists(json_file):
+                            renamed_json_path = os.path.join(current_output_dir, f"{attempt_prefix}{os.path.basename(json_file)}")
+                            os.rename(json_file, renamed_json_path)
+                            logger.warning(f"Conversion failed. Renamed failed JSON to {renamed_json_path}")
+
+                        # Rename the response file
+                        response_file = os.path.join(current_output_dir, f"{base_output_name}_response.txt")
+                        if os.path.exists(response_file):
+                            renamed_response_path = os.path.join(current_output_dir, f"{attempt_prefix}{base_output_name}_response.txt")
+                            os.rename(response_file, renamed_response_path)
+
+                        # Rename the prompt file for this attempt
+                        prompt_file_to_rename = ""
+                        if current_retry == 0:
+                            prompt_file_to_rename = os.path.join(current_output_dir, "initial_prompt.txt")
+                        else:
+                            prompt_file_to_rename = os.path.join(current_output_dir, "retry_prompt.txt")
                         
+                        if os.path.exists(prompt_file_to_rename):
+                             os.rename(prompt_file_to_rename, os.path.join(current_output_dir, f"{attempt_prefix}{os.path.basename(prompt_file_to_rename)}"))
+
+                        # Rename any partially created ONNX folder
+                        partial_onnx_dir = os.path.join(current_output_dir, case_name)
+                        if os.path.isdir(partial_onnx_dir):
+                            renamed_onnx_dir = os.path.join(current_output_dir, f"{attempt_prefix}{case_name}_failed_onnx")
+                            os.rename(partial_onnx_dir, renamed_onnx_dir)
+
                         if current_retry < max_retries:
                             logger.warning(f"ONNX conversion failed, attempting retry {current_retry + 1}/{max_retries}")
                             current_retry += 1
                             continue
                         else:
-                            logger.error("ONNX conversion failed after all retries")
+                            logger.error(f"ONNX conversion failed after all retries. Process files are kept in {process_dir}")
                             return False
                 else:
                     return True
@@ -830,11 +926,16 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     continue
                 else:
                     logger.error("JSON generation failed after all retries")
+                    if process_dir:
+                         logger.info(f"Process files are kept in {process_dir}")
                     return False
                 
     except Exception as e:
         logger.error(f"Error generating test case: {str(e)}")
+        if process_dir:
+            logger.info(f"Process files are kept in {process_dir}")
         return False
+
 
 def main():
     parser = argparse.ArgumentParser(description='Generate test cases for ONNX operators')
@@ -894,4 +995,4 @@ def main():
     return 0 if success else 1
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    sys.exit(main())
