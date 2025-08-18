@@ -54,8 +54,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "ai-json-generate=ai_json_generator.generate_json:main",
-            "ai-json-operator=ai_json_generator.generate_operator_testcase:main",
+            "ai-json-generator=ai_json_generator.generate_json:main",
         ],
     },
 ) 
