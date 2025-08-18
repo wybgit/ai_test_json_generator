@@ -10,7 +10,9 @@ import time
 import requests
 import re
 from typing import Dict, Any, Optional, List, Tuple
-from colorama import init, Fore, Back, Style
+from rich.logging import RichHandler
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.console import Console
 import csv
 import subprocess
 import tempfile
@@ -20,16 +22,15 @@ import importlib
 from importlib import import_module
 import importlib.resources as pkg_resources
 
-# Initialize colorama for colored terminal output
-init(autoreset=True)
+# Initialize Rich Console
+console = Console()
 
-# Set up logging
+# Set up logging with RichHandler
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    level="INFO",
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(rich_tracebacks=True)]
 )
 logger = logging.getLogger('json_generator')
 
@@ -171,7 +172,6 @@ class LLMJsonGenerator:
             "stop": []
         }
         
-        # Add enable_thinking if it exists in config
         if "enable_thinking" in self.config:
             payload["enable_thinking"] = self.config["enable_thinking"]
         
@@ -185,71 +185,80 @@ class LLMJsonGenerator:
             ) as response:
                 response.raise_for_status()
                 
-                # Initialize variables to store thinking process and final response
                 thinking_process = []
                 final_response = []
-                output_line = ""  # Current line content
                 is_receiving_content = False
-                
-                # Process the streaming response
-                for line in response.iter_lines():
-                    if line:
-                        # Remove 'data: ' prefix and parse JSON
-                        line_text = line.decode('utf-8').replace('data: ', '')
-                        try:
-                            data = json.loads(line_text)
-                        except json.JSONDecodeError:
-                            continue
-                        
-                        # Extract reasoning/thinking content
-                        reasoning_content = data.get('choices', [{}])[0].get('delta', {}).get('reasoning_content')
-                        if reasoning_content and not is_receiving_content:
-                            thinking_process.append(reasoning_content)
-                            # Update thinking display in a single line, replace newlines with spaces
-                            output_line = f"{Fore.BLACK}{Back.WHITE}[思考中] {reasoning_content.replace(chr(10), ' ')}{Style.RESET_ALL}"
-                            if show_output:
-                                sys.stdout.write('\r' + ' ' * 100 + '\r')  # Clear line with sufficient spaces
-                                sys.stdout.write(output_line[:100])  # Limit line length for display
-                                sys.stdout.flush()
-                        
-                        # Extract response content
-                        content = data.get('choices', [{}])[0].get('delta', {}).get('content')
-                        if content:
-                            is_receiving_content = True
-                            final_response.append(content)
-                            # Update response display in a single line, replace newlines with spaces
-                            output_line = f"{Fore.WHITE}{Back.GREEN}[生成] {''.join(final_response[-100:]).replace(chr(10), ' ')}"
-                            if show_output:
-                                sys.stdout.write('\r' + ' ' * 100 + '\r')  # Clear line with sufficient spaces
-                                sys.stdout.write(output_line[:100])  # Limit line length for display
-                                sys.stdout.flush()
-                        
-                        # Check if response is finished
-                        finish_reason = data.get('choices', [{}])[0].get('finish_reason')
-                        if finish_reason == 'stop':
-                            break
-                
-                # Add newline for better display
+
                 if show_output:
-                    sys.stdout.write('\n')
-                    sys.stdout.flush()
+                    # Assuming Progress, SpinnerColumn, TextColumn, console are imported
+                    # from rich.progress, rich.spinner, rich.text, and rich.console respectively.
+                    # Also assuming 'console' is an initialized Console object.
+                    from rich.progress import Progress, SpinnerColumn, TextColumn
+                    from rich.console import Console
+                    console = Console()
+
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        console=console,
+                        transient=True
+                    ) as progress:
+                        task = progress.add_task("[yellow]Connecting...", total=None)
+                        
+                        for line in response.iter_lines():
+                            if line:
+                                line_text = line.decode('utf-8').replace('data: ', '')
+                                try:
+                                    data = json.loads(line_text)
+                                except json.JSONDecodeError:
+                                    continue
+                                
+                                reasoning_content = data.get('choices', [{}])[0].get('delta', {}).get('reasoning_content')
+                                if reasoning_content and not is_receiving_content:
+                                    thinking_process.append(reasoning_content)
+                                    display_text = reasoning_content.replace('\n', ' ').strip()
+                                    progress.update(task, description=f"[bold blue][思考中] {display_text}")
+
+                                content = data.get('choices', [{}])[0].get('delta', {}).get('content')
+                                if content:
+                                    if not is_receiving_content:
+                                        is_receiving_content = True
+                                        progress.update(task, description="[bold green][生成中]")
+                                    final_response.append(content)
+
+                                if data.get('choices', [{}])[0].get('finish_reason') == 'stop':
+                                    progress.update(task, description="[bold green]Done!")
+                                    break
+                else:
+                    for line in response.iter_lines():
+                        if line:
+                            line_text = line.decode('utf-8').replace('data: ', '')
+                            try:
+                                data = json.loads(line_text)
+                            except json.JSONDecodeError:
+                                continue
+                            reasoning_content = data.get('choices', [{}])[0].get('delta', {}).get('reasoning_content')
+                            if reasoning_content:
+                                thinking_process.append(reasoning_content)
+                            content = data.get('choices', [{}])[0].get('delta', {}).get('content')
+                            if content:
+                                final_response.append(content)
+                            if data.get('choices', [{}])[0].get('finish_reason') == 'stop':
+                                break
                 
-                # Combine thinking process and final response
                 thinking_content = ''.join(thinking_process)
                 response_content = ''.join(final_response)
                 
                 logger.info(f"Received complete response ({len(response_content)} chars)")
                 if thinking_content:
                     logger.info(f"Captured thinking content ({len(thinking_content)} chars)")
-                    full_content = f"THINKING:\n{thinking_content}\n\nRESPONSE:\n{response_content}"
+                    return f"THINKING:\n{thinking_content}\n\nRESPONSE:\n{response_content}"
                 else:
-                    full_content = response_content
-                
-                return full_content
+                    return response_content
                 
         except Exception as e:
             logger.error(f"Error querying LLM: {e}")
-            if response and hasattr(response, 'text'):
+            if 'response' in locals() and hasattr(response, 'text'):
                 logger.error(f"Response: {response.text}")
             raise
     
@@ -1095,7 +1104,7 @@ def run_irjson_convert(json_file: str, output_dir: str) -> Tuple[bool, Optional[
                 f.write(output)
                 f.flush()
                 # Print to screen
-                print(output.strip())
+                console.print(output.strip())
                 sys.stdout.flush()
                 
                 # Look for the output directory line
@@ -1126,7 +1135,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                      test_point: Optional[str] = None, graph_pattern: Optional[str] = None,
                      add_req: Optional[str] = None, direct_prompt: Optional[str] = None,
                      direct_request: Optional[str] = None,
-                     convert_to_onnx: bool = False, max_retries: int = 1) -> bool:
+                     convert_to_onnx: bool = False, max_retries: int = 1, debug: bool = False) -> bool:
     """Generate test case for the specified operator(s)."""
     # Ensure the base output directory exists first.
     os.makedirs(output_dir, exist_ok=True)
@@ -1219,7 +1228,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     base_output_name,
                     "json",
                     max_retries=3,
-                    debug=True,
+                    debug=debug,
                     show_output=not quiet,
                     direct_prompt_file=direct_prompt
                 )
@@ -1392,10 +1401,11 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     base_output_name,
                     "json",
                     max_retries=3,
-                    debug=True,
+                    debug=debug,
                     show_output=not quiet,
                     direct_prompt_file=direct_prompt
                 )
+
             
             if success:
                 if operator_string:
@@ -1544,6 +1554,7 @@ def main():
     parser.add_argument('--direct-request', help='Path to a txt file containing test case requirements to replace the default test point content')
     parser.add_argument('--convert-to-onnx', action='store_true', help='Convert generated JSON to ONNX model using irjson-convert')
     parser.add_argument('--max-retries', type=int, default=1, help='Maximum number of retry attempts for failed ONNX conversion')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode, saving intermediate files.')
 
     args = parser.parse_args()
     
@@ -1579,7 +1590,8 @@ def main():
         direct_prompt=args.direct_prompt,
         direct_request=args.direct_request,
         convert_to_onnx=args.convert_to_onnx,
-        max_retries=args.max_retries
+        max_retries=args.max_retries,
+        debug=args.debug
     )
     
     return 0 if success else 1
