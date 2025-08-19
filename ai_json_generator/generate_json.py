@@ -21,11 +21,12 @@ import site
 import importlib
 from importlib import import_module
 import importlib.resources as pkg_resources
+from .cli_display import CLIDisplay, setup_display, get_display
 
 # Initialize Rich Console
 console = Console()
 
-# Set up logging with RichHandler
+# Set up basic logging (will be overridden by CLIDisplay)
 logging.basicConfig(
     level="INFO",
     format="%(message)s",
@@ -35,12 +36,15 @@ logging.basicConfig(
 logger = logging.getLogger('json_generator')
 
 class LLMJsonGenerator:
-    def __init__(self, config_path="config.json"):
+    def __init__(self, config_path="config.json", display: CLIDisplay = None):
+        self.display = display or get_display()
         self.config = self._load_config(config_path)
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.config['api_token']}"
         }
+        # Show config info
+        self.display.print_config_info(self.config)
         
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load LLM configuration from JSON file."""
@@ -48,15 +52,15 @@ class LLMJsonGenerator:
         env_config_path = os.environ.get('AI_JSON_GENERATOR_CONFIG')
         if env_config_path and os.path.isfile(env_config_path):
             config_file = env_config_path
-            logger.info(f"Using config file from environment variable: {config_file}")
+            logger.debug(f"Using config file from environment variable: {config_file}")
         # Check if config file exists with absolute path
         elif os.path.isabs(config_path) and os.path.isfile(config_path):
             config_file = config_path
-            logger.info(f"Using config file from absolute path: {config_file}")
+            logger.debug(f"Using config file from absolute path: {config_file}")
         # Check relative to current directory
         elif os.path.isfile(config_path):
             config_file = config_path
-            logger.info(f"Using config file from current directory: {config_file}")
+            logger.debug(f"Using config file from current directory: {config_file}")
         # Check in package directory
         else:
             package_dir = os.path.dirname(os.path.abspath(__file__))
@@ -64,14 +68,14 @@ class LLMJsonGenerator:
             package_config = os.path.join(package_dir, config_path)
             if os.path.isfile(package_config):
                 config_file = package_config
-                logger.info(f"Using config file from package directory: {config_file}")
+                logger.debug(f"Using config file from package directory: {config_file}")
             else:
                 # Try config in home directory
                 home_dir = os.path.expanduser("~")
                 home_config = os.path.join(home_dir, '.ai_json_generator', config_path)
                 if os.path.isfile(home_config):
                     config_file = home_config
-                    logger.info(f"Using config file from home directory: {config_file}")
+                    logger.debug(f"Using config file from home directory: {config_file}")
                 else:
                     # Try config in package data
                     try:
@@ -79,7 +83,7 @@ class LLMJsonGenerator:
                         with pkg_resources.path('ai_json_generator', config_path) as p:
                             if os.path.isfile(p):
                                 config_file = str(p)
-                                logger.info(f"Using config file from package data: {config_file}")
+                                logger.debug(f"Using config file from package data: {config_file}")
                             else:
                                 raise FileNotFoundError(f"Config file not found: {config_path}")
                     except ImportError:
@@ -87,13 +91,15 @@ class LLMJsonGenerator:
                         package_data_config = os.path.join(package_dir, config_path)
                         if os.path.isfile(package_data_config):
                             config_file = package_data_config
-                            logger.info(f"Using config file from package data: {config_file}")
+                            logger.debug(f"Using config file from package data: {config_file}")
                         else:
                             raise FileNotFoundError(f"Config file not found: {config_path}")
         
         try:
             with open(config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                config = json.load(f)
+                logger.debug(f"Successfully loaded config from {config_file}")
+                return config
         except Exception as e:
             logger.error(f"Failed to load config from {config_file}: {e}")
             raise
@@ -113,14 +119,16 @@ class LLMJsonGenerator:
                 # Check in prompts directory within package
                 template_file = os.path.join(package_dir, '..', 'prompts', os.path.basename(template_path))
                 if not os.path.isfile(template_file):
-                    logger.error(f"Template file not found: {template_path}")
+                    self.display.error(f"Template file not found: {template_path}")
                     raise FileNotFoundError(f"Template file not found: {template_path}")
         
         try:
             with open(template_file, 'r', encoding='utf-8') as f:
-                return f.read()
+                content = f.read()
+                self.display.debug(f"Successfully loaded template from {template_file}")
+                return content
         except Exception as e:
-            logger.error(f"Failed to read template from {template_file}: {e}")
+            self.display.error(f"Failed to read template from {template_file}: {e}")
             raise
     
     def _process_replacements(self, replacements: Dict[str, str]) -> Dict[str, str]:
@@ -129,14 +137,14 @@ class LLMJsonGenerator:
         for key, value in replacements.items():
             # Check if value is a file path
             if os.path.isfile(value):
-                logger.info(f"Treating replacement value for '{key}' as a file path: {value}")
+                self.display.debug(f"Treating replacement value for '{key}' as a file path: {value}")
                 try:
                     with open(value, 'r', encoding='utf-8') as f:
                         file_content = f.read()
                     processed_replacements[key] = file_content
-                    logger.info(f"Loaded {len(file_content)} characters from file for '{key}'")
+                    self.display.debug(f"Loaded {len(file_content)} characters from file for '{key}'")
                 except Exception as e:
-                    logger.error(f"Failed to read file for replacement '{key}': {e}")
+                    self.display.error(f"Failed to read file for replacement '{key}': {e}")
                     # Fall back to using the path as the value
                     processed_replacements[key] = value
             else:
@@ -176,7 +184,7 @@ class LLMJsonGenerator:
             payload["enable_thinking"] = self.config["enable_thinking"]
         
         try:
-            logger.info("Sending request to LLM API...")
+            self.display.debug("Sending request to LLM API...")
             with requests.post(
                 self.config["api_url"],
                 headers=self.headers,
@@ -190,20 +198,8 @@ class LLMJsonGenerator:
                 is_receiving_content = False
 
                 if show_output:
-                    # Assuming Progress, SpinnerColumn, TextColumn, console are imported
-                    # from rich.progress, rich.spinner, rich.text, and rich.console respectively.
-                    # Also assuming 'console' is an initialized Console object.
-                    from rich.progress import Progress, SpinnerColumn, TextColumn
-                    from rich.console import Console
-                    console = Console()
-
-                    with Progress(
-                        SpinnerColumn(),
-                        TextColumn("[progress.description]{task.description}"),
-                        console=console,
-                        transient=True
-                    ) as progress:
-                        task = progress.add_task("[yellow]Connecting...", total=None)
+                    with self.display.create_llm_progress() as progress:
+                        progress.update_connecting()
                         
                         for line in response.iter_lines():
                             if line:
@@ -216,18 +212,17 @@ class LLMJsonGenerator:
                                 reasoning_content = data.get('choices', [{}])[0].get('delta', {}).get('reasoning_content')
                                 if reasoning_content and not is_receiving_content:
                                     thinking_process.append(reasoning_content)
-                                    display_text = reasoning_content.replace('\n', ' ').strip()
-                                    progress.update(task, description=f"[bold blue][思考中] {display_text}")
+                                    progress.update_thinking(reasoning_content)
 
                                 content = data.get('choices', [{}])[0].get('delta', {}).get('content')
                                 if content:
                                     if not is_receiving_content:
                                         is_receiving_content = True
-                                        progress.update(task, description="[bold green][生成中]")
+                                        progress.update_generating()
                                     final_response.append(content)
 
                                 if data.get('choices', [{}])[0].get('finish_reason') == 'stop':
-                                    progress.update(task, description="[bold green]Done!")
+                                    progress.update_complete()
                                     break
                 else:
                     for line in response.iter_lines():
@@ -249,17 +244,17 @@ class LLMJsonGenerator:
                 thinking_content = ''.join(thinking_process)
                 response_content = ''.join(final_response)
                 
-                logger.info(f"Received complete response ({len(response_content)} chars)")
+                self.display.debug(f"Received complete response ({len(response_content)} chars)")
                 if thinking_content:
-                    logger.info(f"Captured thinking content ({len(thinking_content)} chars)")
+                    self.display.debug(f"Captured thinking content ({len(thinking_content)} chars)")
                     return f"THINKING:\n{thinking_content}\n\nRESPONSE:\n{response_content}"
                 else:
                     return response_content
                 
         except Exception as e:
-            logger.error(f"Error querying LLM: {e}")
+            self.display.error(f"Error querying LLM: {e}")
             if 'response' in locals() and hasattr(response, 'text'):
-                logger.error(f"Response: {response.text}")
+                self.display.error(f"Response: {response.text}")
             raise
     
     def extract_json_content(self, response: str) -> Optional[str]:
@@ -290,12 +285,12 @@ class LLMJsonGenerator:
             if start_index != -1 and end_index != -1:
                 # Extract JSON content between the markers
                 json_content = response_part[start_index + len(start_marker):end_index].strip()
-                logger.info(f"Extracted JSON content with markers, found content of length: {len(json_content)}")
+                self.display.debug(f"Extracted JSON content with markers, found content of length: {len(json_content)}")
             else:
-                logger.warning(f"Could not find JSON markers in response. Start marker: '{start_marker}' found: {start_index != -1}, End marker: '{end_marker}' found: {end_index != -1}")
+                self.display.debug(f"Could not find JSON markers in response. Start marker: '{start_marker}' found: {start_index != -1}, End marker: '{end_marker}' found: {end_index != -1}")
                 # If we can't find the markers, use the entire response part
                 json_content = response_part
-                logger.info(f"Using full response content of length: {len(json_content)}")
+                self.display.debug(f"Using full response content of length: {len(json_content)}")
             
             # Extract any JSON-like content wrapped in code blocks or braces
             result = self._extract_json_from_text(json_content)
@@ -306,11 +301,11 @@ class LLMJsonGenerator:
                 return result
             except json.JSONDecodeError:
                 fixed_result = self._fix_malformed_json(result)
-                logger.info(f"Attempted to fix malformed JSON, result length: {len(fixed_result)}")
+                self.display.debug(f"Attempted to fix malformed JSON, result length: {len(fixed_result)}")
                 return fixed_result
             
         except Exception as e:
-            logger.error(f"Error extracting JSON content: {e}")
+            self.display.error(f"Error extracting JSON content: {e}")
             return None
     
     def _extract_code_blocks(self, text: str) -> list:
@@ -352,13 +347,13 @@ class LLMJsonGenerator:
         # First try to extract from code blocks
         code_blocks = self._extract_code_blocks(text)
         if code_blocks:
-            logger.info(f"Found {len(code_blocks)} code blocks")
+            self.display.debug(f"Found {len(code_blocks)} code blocks")
             # Try each code block to see if it's valid JSON
             for block in code_blocks:
                 try:
                     # Test if it's valid JSON
                     json.loads(block)
-                    logger.info("Found valid JSON in code block")
+                    self.display.debug("Found valid JSON in code block")
                     return block
                 except json.JSONDecodeError:
                     # Try to fix common issues with JSON
@@ -366,7 +361,7 @@ class LLMJsonGenerator:
                     try:
                         # Test if the fixed block is valid JSON
                         json.loads(fixed_block)
-                        logger.info("Found valid JSON after fixing malformed JSON")
+                        self.display.debug("Found valid JSON after fixing malformed JSON")
                         return fixed_block
                     except json.JSONDecodeError:
                         continue
@@ -382,7 +377,7 @@ class LLMJsonGenerator:
                 # Test if it's valid JSON
                 try:
                     json.loads(json_str)
-                    logger.info("Found valid JSON with brace matching")
+                    self.display.debug("Found valid JSON with brace matching")
                     return json_str
                 except json.JSONDecodeError:
                     # Try to fix common issues with JSON
@@ -390,7 +385,7 @@ class LLMJsonGenerator:
                     try:
                         # Test if the fixed JSON is valid
                         json.loads(fixed_json)
-                        logger.info("Found valid JSON after fixing malformed JSON with brace matching")
+                        self.display.debug("Found valid JSON after fixing malformed JSON with brace matching")
                         return fixed_json
                     except json.JSONDecodeError:
                         pass
@@ -548,28 +543,31 @@ class LLMJsonGenerator:
                 try:
                     with open(direct_prompt_file, 'r', encoding='utf-8') as f:
                         prompt = f.read()
-                    logger.info(f"Using direct prompt from file: {direct_prompt_file}")
+                    self.display.debug(f"Using direct prompt from file: {direct_prompt_file}")
                 except Exception as e:
-                    logger.error(f"Error reading direct prompt file: {e}")
+                    self.display.error(f"Error reading direct prompt file: {e}")
                     return False
             else:
                 # Read template
                 template = self._read_template(template_path)
-                logger.info(f"Loaded template from {template_path} ({len(template)} chars)")
+                self.display.debug(f"Loaded template from {template_path} ({len(template)} chars)")
                 
                 # Fill template with replacements
                 prompt = self._fill_template(template, replacements)
-                logger.info(f"Filled template with {len(replacements)} replacements")
+                self.display.debug(f"Filled template with {len(replacements)} replacements")
             
             if debug:
                 prompt_file = os.path.join(output_folder, f"{output_filename}.prompt.txt")
                 with open(prompt_file, 'w', encoding='utf-8') as f:
                     f.write(prompt)
-                logger.info(f"Saved prompt to {prompt_file}")
+                self.display.debug(f"Saved prompt to {prompt_file}")
             
             # Attempt to generate JSON with retries
             for attempt in range(max_retries):
-                logger.info(f"Attempt {attempt + 1}/{max_retries}")
+                if max_retries > 1:
+                    self.display.info(f"Attempt {attempt + 1}/{max_retries}")
+                else:
+                    self.display.debug(f"Attempt {attempt + 1}/{max_retries}")
                 
                 # Query LLM
                 response = self.query_llm(prompt, show_output)
@@ -578,7 +576,7 @@ class LLMJsonGenerator:
                     response_file = os.path.join(output_folder, f"{output_filename}.attempt{attempt+1}.response.txt")
                     with open(response_file, 'w', encoding='utf-8') as f:
                         f.write(response)
-                    logger.info(f"Saved response to {response_file}")
+                    self.display.debug(f"Saved response to {response_file}")
                 
                 # Extract JSON content
                 json_content = self.extract_json_content(response)
@@ -591,11 +589,11 @@ class LLMJsonGenerator:
                     output_file = os.path.join(output_folder, f"{output_filename}.{output_ext}")
                     with open(output_file, 'w', encoding='utf-8') as f:
                         json.dump(parsed_json, f, indent=2, ensure_ascii=False)
-                    logger.info(f"Generated valid JSON file: {output_file}")
+                    self.display.success(f"Generated valid JSON file: {output_file}")
                     return True
                 else:
                     # JSON is invalid, try again
-                    logger.warning(f"Invalid JSON on attempt {attempt + 1}: {error}")
+                    self.display.warning(f"Invalid JSON on attempt {attempt + 1}: {error[:100]}..." if len(error) > 100 else f"Invalid JSON on attempt {attempt + 1}: {error}")
                     
                     if attempt < max_retries - 1:
                         # Prepare retry prompt
@@ -608,18 +606,18 @@ class LLMJsonGenerator:
                                 f.write(retry_prompt)
             
             # All attempts failed
-            logger.error(f"Failed to generate valid JSON after {max_retries} attempts")
+            self.display.error(f"Failed to generate valid JSON after {max_retries} attempts")
             
             # Save the last error response
             error_file = os.path.join(output_folder, f"{output_filename}.{output_ext}.error")
             with open(error_file, 'w', encoding='utf-8') as f:
                 f.write(json_content)
-            logger.info(f"Saved invalid JSON to {error_file}")
+            self.display.debug(f"Saved invalid JSON to {error_file}")
             
             return False
             
         except Exception as e:
-            logger.error(f"Error generating JSON: {e}")
+            self.display.error(f"Error generating JSON: {e}")
             return False
 
 def parse_key_value_pairs(pair_str: str) -> Dict[str, str]:
@@ -716,10 +714,10 @@ def find_operator_params(operator_name, csv_path):
                     
                     # Format the parameters as a string
                     formatted_params = format_operator_params(params, headers)
-                    logger.info(f"Found parameters for {operator_name}: {formatted_params[:100]}...")
+                    logger.debug(f"Found parameters for {operator_name}: {formatted_params[:100]}...")
                     return formatted_params
             
-            logger.warning(f"Operator '{operator_name}' not found in CSV file")
+            logger.debug(f"Operator '{operator_name}' not found in CSV file")
             return None
     
     except Exception as e:
@@ -906,7 +904,7 @@ def find_resource_path(relative_path):
                     prompts_module = import_module('ai_json_generator.prompts')
                     spec_path = os.path.join(os.path.dirname(prompts_module.__file__), file_name)
                     if os.path.exists(spec_path):
-                        logger.info(f"Found resource through module import: {spec_path}")
+                        logger.debug(f"Found resource through module import: {spec_path}")
                         return spec_path
                 except (ImportError, ModuleNotFoundError):
                     pass
@@ -916,7 +914,7 @@ def find_resource_path(relative_path):
                     with importlib.resources.path('ai_json_generator.prompts', file_name) as p:
                         resource_path = str(p)
                         if os.path.exists(resource_path):
-                            logger.info(f"Found resource through importlib.resources: {resource_path}")
+                            logger.debug(f"Found resource through importlib.resources: {resource_path}")
                             return resource_path
                 except (ImportError, ModuleNotFoundError, FileNotFoundError):
                     pass
@@ -926,7 +924,7 @@ def find_resource_path(relative_path):
                     import pkg_resources as old_pkg_resources
                     resource_path = old_pkg_resources.resource_filename('ai_json_generator.prompts', file_name)
                     if os.path.exists(resource_path):
-                        logger.info(f"Found resource through pkg_resources: {resource_path}")
+                        logger.debug(f"Found resource through pkg_resources: {resource_path}")
                         return resource_path
                 except (ImportError, Exception):
                     pass
@@ -943,7 +941,7 @@ def find_resource_path(relative_path):
                     data_files_module = import_module('ai_json_generator.data_files')
                     spec_path = os.path.join(os.path.dirname(data_files_module.__file__), file_name)
                     if os.path.exists(spec_path):
-                        logger.info(f"Found resource through module import: {spec_path}")
+                        logger.debug(f"Found resource through module import: {spec_path}")
                         return spec_path
                 except (ImportError, ModuleNotFoundError):
                     pass
@@ -953,7 +951,7 @@ def find_resource_path(relative_path):
                     with importlib.resources.path('ai_json_generator.data_files', file_name) as p:
                         resource_path = str(p)
                         if os.path.exists(resource_path):
-                            logger.info(f"Found resource through importlib.resources: {resource_path}")
+                            logger.debug(f"Found resource through importlib.resources: {resource_path}")
                             return resource_path
                 except (ImportError, ModuleNotFoundError, FileNotFoundError):
                     pass
@@ -963,7 +961,7 @@ def find_resource_path(relative_path):
                     import pkg_resources as old_pkg_resources
                     resource_path = old_pkg_resources.resource_filename('ai_json_generator.data_files', file_name)
                     if os.path.exists(resource_path):
-                        logger.info(f"Found resource through pkg_resources: {resource_path}")
+                        logger.debug(f"Found resource through pkg_resources: {resource_path}")
                         return resource_path
                 except (ImportError, Exception):
                     pass
@@ -988,7 +986,7 @@ def find_resource_path(relative_path):
         # Check all paths
         for path in search_paths:
             if os.path.exists(path):
-                logger.info(f"Found resource at: {path}")
+                logger.debug(f"Found resource at: {path}")
                 return path
         
         # If we haven't returned by now, look in parent directories
@@ -1003,7 +1001,7 @@ def find_resource_path(relative_path):
         
         for path in parent_paths:
             if os.path.exists(path):
-                logger.info(f"Found resource in parent directory: {path}")
+                logger.debug(f"Found resource in parent directory: {path}")
                 return path
         
         # If still not found, let's look at some typical installation paths
@@ -1024,7 +1022,7 @@ def find_resource_path(relative_path):
             
             for path in site_paths:
                 if os.path.exists(path):
-                    logger.info(f"Found resource in site-packages: {path}")
+                    logger.debug(f"Found resource in site-packages: {path}")
                     return path
         
         # Handle development symlinks
@@ -1037,7 +1035,7 @@ def find_resource_path(relative_path):
         
         for path in dev_paths:
             if os.path.exists(path):
-                logger.info(f"Found resource in development directory: {path}")
+                logger.debug(f"Found resource in development directory: {path}")
                 return path
         
         # Special case for op_testcase.prompt
@@ -1113,18 +1111,18 @@ def run_irjson_convert(json_file: str, output_dir: str) -> Tuple[bool, Optional[
                     path_match = output.split("输出目录:", 1)
                     if len(path_match) > 1:
                         actual_model_dir = path_match[1].strip()
-                        logger.info(f"Detected model output directory: {actual_model_dir}")
+                        logger.debug(f"Detected model output directory: {actual_model_dir}")
 
         # Wait for the process to complete and get the return code
         return_code = process.wait()
         
         if return_code == 0:
-            logger.info(f"Successfully converted {json_file} to ONNX model")
-            logger.info(f"Conversion log saved to {log_file}")
+            logger.debug(f"Successfully converted {json_file} to ONNX model")
+            logger.debug(f"Conversion log saved to {log_file}")
             return True, actual_model_dir
         else:
             logger.error(f"Failed to convert {json_file} to ONNX model (return code: {return_code})")
-            logger.info(f"Check {log_file} for details")
+            logger.debug(f"Check {log_file} for details")
             return False, None
             
     except Exception as e:
@@ -1149,7 +1147,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
             shutil.rmtree(process_dir)
         os.makedirs(process_dir)
         current_output_dir = process_dir
-        logger.info(f"Using process directory for intermediate files: {process_dir}")
+        logger.debug(f"Using process directory for intermediate files: {process_dir}")
     else:
         current_output_dir = output_dir
 
@@ -1161,7 +1159,8 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
         os.makedirs(current_output_dir, exist_ok=True)
         
         # Initialize generator
-        generator = LLMJsonGenerator()
+        display = get_display()
+        generator = LLMJsonGenerator(display=display)
         
         # Track the current retry attempt
         current_retry = 0
@@ -1188,7 +1187,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
             
             # If using direct prompt, we can skip all the template processing
             if direct_prompt:
-                logger.info(f"Using direct prompt file: {direct_prompt}")
+                display.debug(f"Using direct prompt file: {direct_prompt}")
                 
                 # Save the original prompt content for potential retry
                 if current_retry == 0:
@@ -1248,7 +1247,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                 # Only check operators CSV if we have an operator string and not using direct_request only
                 if operator_string and not (direct_request and not operator_string):
                     if not operators_csv:
-                        logger.error("Could not find operators CSV file")
+                        display.error("Could not find operators CSV file")
                         return False
                     
                     operators_list = operator_string.split()
@@ -1258,7 +1257,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     for op in operators_list:
                         op_params = find_operator_params(op, operators_csv)
                         if not op_params:
-                            logger.error(f"Could not find parameters for operator: {op}")
+                            display.error(f"Could not find parameters for operator: {op}")
                             return False
                         all_operator_params.append(op_params)
                     
@@ -1409,9 +1408,9 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
             
             if success:
                 if operator_string:
-                    logger.info(f"Successfully generated test case for {operator_string}")
+                    display.success(f"Successfully generated test case for {operator_string}")
                 else:
-                    logger.info("Successfully generated test case with custom requirements")
+                    display.success("Successfully generated test case with custom requirements")
 
                 original_json_path = os.path.join(current_output_dir, f"{base_output_name}.json")
                 json_file = original_json_path  # Default in case of error
@@ -1429,11 +1428,11 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                         if os.path.exists(new_json_path):
                             os.remove(new_json_path)
                         os.rename(original_json_path, new_json_path)
-                        logger.info(f"Renamed output file to: {new_json_path}")
+                        display.debug(f"Renamed output file to: {new_json_path}")
                     json_file = new_json_path
 
                 except (IOError, json.JSONDecodeError, KeyError) as e:
-                    logger.error(f"Failed to process generated JSON for renaming: {e}. Proceeding with original filename.")
+                    display.debug(f"Failed to process generated JSON for renaming: {e}. Proceeding with original filename.")
                 
                 # If convert_to_onnx is True, run irjson-convert
                 if convert_to_onnx:
@@ -1441,6 +1440,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     with open(json_file, 'r', encoding='utf-8') as f:
                         last_json_content = f.read()
                     
+                    display.info("🔄 Converting JSON to ONNX model...")
                     conversion_success, model_path = run_irjson_convert(json_file, current_output_dir)
                     if conversion_success:
                         # Find the generated model directory
@@ -1457,16 +1457,16 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                                     logger.warning(f"Removed existing directory at destination: {dest_path}")
 
                                 shutil.move(src_path, dest_path)
-                                logger.info(f"Successfully moved model to {dest_path}")
-                                logger.info(f"Process files are kept in {process_dir}")
+                                display.success(f"Successfully converted to ONNX model: {dest_path}")
+                                display.debug(f"Process files are kept in {process_dir}")
                             elif src_path:
-                                logger.error(f"The detected model path is not a directory: '{src_path}'.")
+                                display.error(f"The detected model path is not a directory: '{src_path}'.")
                                 return False
                             else:
-                                logger.error(f"Could not detect the converted model directory from converter output.")
+                                display.error(f"Could not detect the converted model directory from converter output.")
                                 return False
                         except Exception as e:
-                            logger.error(f"Error moving converted model: {e}")
+                            display.error(f"Error moving converted model: {e}")
                             return False
                         
                         return True
@@ -1486,7 +1486,7 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                         if os.path.exists(json_file):
                             renamed_json_path = os.path.join(current_output_dir, f"{attempt_prefix}{os.path.basename(json_file)}")
                             os.rename(json_file, renamed_json_path)
-                            logger.warning(f"Conversion failed. Renamed failed JSON to {renamed_json_path}")
+                            display.warning(f"Conversion failed. Renamed failed JSON to {renamed_json_path}")
 
                         # Rename the response file
                         response_file = os.path.join(current_output_dir, f"{base_output_name}_response.txt")
@@ -1511,29 +1511,29 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                             os.rename(partial_onnx_dir, renamed_onnx_dir)
 
                         if current_retry < max_retries:
-                            logger.warning(f"ONNX conversion failed, attempting retry {current_retry + 1}/{max_retries}")
+                            display.warning(f"ONNX conversion failed, attempting retry {current_retry + 1}/{max_retries}")
                             current_retry += 1
                             continue
                         else:
-                            logger.error(f"ONNX conversion failed after all retries. Process files are kept in {process_dir}")
+                            display.error(f"ONNX conversion failed after all retries. Process files are kept in {process_dir}")
                             return False
                 else:
                     return True
             else:
                 if current_retry < max_retries:
-                    logger.warning(f"JSON generation failed, attempting retry {current_retry + 1}/{max_retries}")
+                    display.warning(f"JSON generation failed, attempting retry {current_retry + 1}/{max_retries}")
                     current_retry += 1
                     continue
                 else:
-                    logger.error("JSON generation failed after all retries")
+                    display.error("JSON generation failed after all retries")
                     if process_dir:
-                         logger.info(f"Process files are kept in {process_dir}")
+                         display.debug(f"Process files are kept in {process_dir}")
                     return False
                 
     except Exception as e:
-        logger.error(f"Error generating test case: {str(e)}")
+        display.error(f"Error generating test case: {str(e)}")
         if process_dir:
-            logger.info(f"Process files are kept in {process_dir}")
+            display.debug(f"Process files are kept in {process_dir}")
         return False
 
 def main():
@@ -1554,9 +1554,17 @@ def main():
     parser.add_argument('--direct-request', help='Path to a txt file containing test case requirements to replace the default test point content')
     parser.add_argument('--convert-to-onnx', action='store_true', help='Convert generated JSON to ONNX model using irjson-convert')
     parser.add_argument('--max-retries', type=int, default=1, help='Maximum number of retry attempts for failed ONNX conversion')
-    parser.add_argument('--debug', action='store_true', help='Enable debug mode, saving intermediate files.')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode with detailed logging and intermediate files')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose mode (same as --debug)')
+    parser.add_argument('--no-color', action='store_true', help='Disable colored output')
 
     args = parser.parse_args()
+    
+    # Handle debug/verbose flag
+    debug_mode = args.debug or args.verbose
+    
+    # Setup display system
+    display = setup_display(debug=debug_mode, quiet=args.quiet)
     
     # Set default output directory if not specified
     if not args.output_dir:
@@ -1564,10 +1572,20 @@ def main():
     
     # Check if operators are provided when not using direct prompt or direct request
     if not args.operator and not args.direct_prompt and not args.direct_request:
-        logger.error("Please specify at least one operator name, provide a direct prompt file, or provide a direct request file")
+        display.error("Please specify at least one operator name, provide a direct prompt file, or provide a direct request file")
         return 1
     
-    # Determine the operator string
+    # Print header
+    display.print_header("🤖 AI JSON Test Case Generator", "Generate ONNX operator test cases with LLM")
+    
+    # Show generation info
+    if args.operator:
+        operator_string = ' '.join(args.operator) if len(args.operator) > 1 else args.operator[0]
+        display.print_generation_start(operator_string, args.output_dir)
+    else:
+        display.print_generation_start(None, args.output_dir)
+    
+    # Determine the operator string  
     operator_string = ""
     if args.operator:
         # In case of multiple arguments (e.g. MatMul Add Slice), join them
@@ -1576,9 +1594,6 @@ def main():
             operator_string = args.operator[0]
         else:
             operator_string = ' '.join(args.operator)
-        logger.info(f"Processing operators: {operator_string}")
-    elif args.direct_request:
-        logger.info("Using direct request without operator specification")
     
     success = generate_testcase(
         operator_string, 
@@ -1591,8 +1606,11 @@ def main():
         direct_request=args.direct_request,
         convert_to_onnx=args.convert_to_onnx,
         max_retries=args.max_retries,
-        debug=args.debug
+        debug=debug_mode
     )
+    
+    # Print summary
+    display.print_summary(success)
     
     return 0 if success else 1
 
