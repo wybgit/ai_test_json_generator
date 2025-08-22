@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI JSON Generator - Web Interface</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+        <header class="row bg-primary text-white py-3 mb-4">
+            <div class="col">
+                <h1 class="mb-0">
+                    <i class="fas fa-robot me-2"></i>
+                    AI JSON Generator - Web Interface
+                </h1>
+                <p class="mb-0">基于模板生成 AI 模型 JSON 描述的在线工具</p>
+            </div>
+        </header>
+
+        <div class="row">
+            <!-- Left Panel - Configuration -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-cog me-2"></i>
+                            配置和输入
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- Template Selection -->
+                        <div class="mb-4">
+                            <h6 class="fw-bold">
+                                <i class="fas fa-file-alt me-2"></i>
+                                模板选择
+                            </h6>
+                            <div class="row">
+                                <div class="col-8">
+                                    <select id="templateSelect" class="form-select">
+                                        <option value="">选择预置模板...</option>
+                                    </select>
+                                </div>
+                                <div class="col-4">
+                                    <button id="loadTemplateBtn" class="btn btn-outline-primary btn-sm w-100">
+                                        <i class="fas fa-download me-1"></i>
+                                        加载模板
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Template Content -->
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold mb-0">
+                                    <i class="fas fa-edit me-2"></i>
+                                    模板内容
+                                </h6>
+                                <button id="parseTemplateBtn" class="btn btn-outline-success btn-sm">
+                                    <i class="fas fa-search me-1"></i>
+                                    解析变量
+                                </button>
+                            </div>
+                            <textarea id="templateContent" class="form-control" rows="8" 
+                                placeholder="请输入 Jinja2 模板内容..."></textarea>
+                        </div>
+
+                        <!-- Variables Section -->
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold mb-0">
+                                    <i class="fas fa-tags me-2"></i>
+                                    变量设置
+                                </h6>
+                                <div>
+                                    <button id="toggleBatchMode" class="btn btn-outline-warning btn-sm me-2">
+                                        <i class="fas fa-list me-1"></i>
+                                        批量模式
+                                    </button>
+                                    <button id="clearVariablesBtn" class="btn btn-outline-danger btn-sm">
+                                        <i class="fas fa-trash me-1"></i>
+                                        清空
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Single Variable Mode -->
+                            <div id="singleVariableMode">
+                                <div id="variableInputs" class="mb-3">
+                                    <!-- Dynamic variable inputs will be added here -->
+                                </div>
+                            </div>
+
+                            <!-- Batch Mode -->
+                            <div id="batchMode" style="display: none;">
+                                <div class="mb-3">
+                                    <label class="form-label">选择 CSV 文件</label>
+                                    <div class="row">
+                                        <div class="col-8">
+                                            <select id="csvSelect" class="form-select">
+                                                <option value="">选择预置 CSV...</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-4">
+                                            <button id="loadCsvBtn" class="btn btn-outline-primary btn-sm w-100">
+                                                <i class="fas fa-download me-1"></i>
+                                                加载 CSV
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div id="csvDataContainer" style="display: none;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <label class="form-label mb-0">CSV 数据预览</label>
+                                        <button id="toggleCsvPreview" class="btn btn-outline-info btn-sm">
+                                            <i class="fas fa-eye me-1"></i>
+                                            显示数据
+                                        </button>
+                                    </div>
+                                    <div id="csvPreview" style="display: none;" class="table-responsive">
+                                        <table id="csvTable" class="table table-sm table-striped">
+                                            <!-- CSV data will be displayed here -->
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Generation Options -->
+                        <div class="mb-4">
+                            <h6 class="fw-bold">
+                                <i class="fas fa-sliders-h me-2"></i>
+                                生成选项
+                            </h6>
+                            
+                            <!-- ONNX转换选项 -->
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="convertToOnnx">
+                                <label class="form-check-label" for="convertToOnnx">
+                                    转换为 ONNX 模型
+                                </label>
+                            </div>
+                            
+                            <!-- 重试次数 -->
+                            <div class="row mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small">最大重试次数</label>
+                                    <select class="form-select form-select-sm" id="maxRetries">
+                                        <option value="1">1次</option>
+                                        <option value="2">2次</option>
+                                        <option value="3" selected>3次</option>
+                                        <option value="5">5次</option>
+                                    </select>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">调试模式</label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="debugMode" checked>
+                                        <label class="form-check-label small" for="debugMode">
+                                            启用调试
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 高级选项折叠 -->
+                            <div class="collapse" id="advancedOptions">
+                                <div class="card card-body mt-2">
+                                    <h6 class="small fw-bold">高级参数</h6>
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <label class="form-label small">温度参数</label>
+                                            <input type="range" class="form-range" id="temperature" 
+                                                   min="0.1" max="1.0" step="0.1" value="0.6">
+                                            <small class="text-muted" id="temperatureValue">0.6</small>
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small">最大令牌数</label>
+                                            <select class="form-select form-select-sm" id="maxTokens">
+                                                <option value="4096">4096</option>
+                                                <option value="8192" selected>8192</option>
+                                                <option value="16384">16384</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 高级选项切换按钮 -->
+                            <button class="btn btn-outline-secondary btn-sm mt-2" type="button" 
+                                    data-bs-toggle="collapse" data-bs-target="#advancedOptions">
+                                <i class="fas fa-cog me-1"></i>
+                                高级选项
+                            </button>
+                        </div>
+
+                        <!-- Generate Button -->
+                        <div class="d-grid">
+                            <button id="generateBtn" class="btn btn-success btn-lg">
+                                <i class="fas fa-play me-2"></i>
+                                生成测试用例
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Output and Logs -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-terminal me-2"></i>
+                            输出和日志
+                        </h5>
+                    </div>
+                    <div class="card-body d-flex flex-column">
+                        <!-- Status -->
+                        <div id="statusContainer" class="mb-3">
+                            <div class="alert alert-info" role="alert">
+                                <i class="fas fa-info-circle me-2"></i>
+                                <span id="statusMessage">准备就绪，等待生成任务...</span>
+                            </div>
+                        </div>
+
+                        <!-- Traditional Logs -->
+                        <div class="mb-3 flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold mb-0">
+                                    <i class="fas fa-terminal me-2"></i>
+                                    生成日志
+                                </h6>
+                                <div>
+                                    <button id="stopTaskBtn" class="btn btn-outline-warning btn-sm me-2" style="display: none;">
+                                        <i class="fas fa-stop me-1"></i>
+                                        停止监控
+                                    </button>
+                                    <button id="clearLogsBtn" class="btn btn-outline-danger btn-sm">
+                                        <i class="fas fa-trash me-1"></i>
+                                        清空
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="logContainer" class="border rounded bg-dark text-light" 
+                                 style="height: 350px; overflow-y: auto; padding: 10px;">
+                                <div id="logMessages">
+                                    <div class="log-message info">
+                                        <span class="log-timestamp">[刚刚]</span>
+                                        <span class="log-content">欢迎使用AI JSON生成器v2！请选择模板并配置参数开始生成。</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Results Section -->
+                        <div id="resultsSection" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold mb-0">
+                                    <i class="fas fa-file-download me-2"></i>
+                                    生成结果
+                                </h6>
+                                <div>
+                                    <button id="refreshResultsBtn" class="btn btn-outline-primary btn-sm me-2">
+                                        <i class="fas fa-sync me-1"></i>
+                                        刷新
+                                    </button>
+                                    <button id="downloadAllBtn" class="btn btn-success btn-sm">
+                                        <i class="fas fa-download me-1"></i>
+                                        打包下载
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="resultsList" class="list-group">
+                                <!-- Results will be displayed here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Modal -->
+    <div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center">
+                    <div class="spinner-border text-primary me-3" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span id="loadingMessage">正在处理...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Preview Modal -->
+    <div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="previewModalTitle">文件预览</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <pre id="previewContent" class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- 使用新的API v2 -->
+    <script src="{{ url_for('static', filename='js/app_v2.js') }}"></script>
+</body>
+</html>

@@ -18,6 +18,9 @@ import subprocess
 import tempfile
 import shutil
 import site
+import io
+from contextlib import redirect_stdout, redirect_stderr
+from jinja2 import Template, Environment, FileSystemLoader
 import importlib
 from importlib import import_module
 import importlib.resources as pkg_resources
@@ -43,6 +46,17 @@ class LLMJsonGenerator:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.config['api_token']}"
         }
+        
+        # Token usage statistics
+        self.token_stats = {
+            'total_input_tokens': 0,
+            'total_output_tokens': 0,
+            'total_tokens': 0,
+            'requests_count': 0,
+            'start_time': None,
+            'end_time': None
+        }
+        
         # Show config info
         self.display.print_config_info(self.config)
         
@@ -153,18 +167,34 @@ class LLMJsonGenerator:
         return processed_replacements
     
     def _fill_template(self, template: str, replacements: Dict[str, str]) -> str:
-        """Fill the template with provided replacements."""
-        filled_template = template
+        """Fill the template with provided replacements using Jinja2."""
         processed_replacements = self._process_replacements(replacements)
         
-        for key, value in processed_replacements.items():
-            placeholder = f"{{{key}}}"
-            filled_template = filled_template.replace(placeholder, value)
-            
-        return filled_template
+        try:
+            # Try Jinja2 template rendering first
+            jinja_template = Template(template)
+            filled_template = jinja_template.render(**processed_replacements)
+            return filled_template
+        except Exception as e:
+            # Fallback to simple string replacement for backward compatibility
+            self.display.debug(f"Jinja2 rendering failed, using simple replacement: {e}")
+            filled_template = template
+            for key, value in processed_replacements.items():
+                placeholder = f"{{{key}}}"
+                filled_template = filled_template.replace(placeholder, value)
+            return filled_template
     
     def query_llm(self, prompt: str, show_output: bool = True) -> str:
         """Query the LLM with the given prompt using streaming and displaying thinking process."""
+        import time
+        
+        # Start timing and token counting
+        if self.token_stats['start_time'] is None:
+            self.token_stats['start_time'] = time.time()
+        
+        request_start_time = time.time()
+        self.token_stats['requests_count'] += 1
+        
         payload = {
             "model": self.config["model"],
             "messages": [{"role": "user", "content": prompt}],
@@ -244,6 +274,9 @@ class LLMJsonGenerator:
                 thinking_content = ''.join(thinking_process)
                 response_content = ''.join(final_response)
                 
+                # Update token statistics (estimate based on content length)
+                self._update_token_stats(prompt, thinking_content + response_content, request_start_time)
+                
                 self.display.debug(f"Received complete response ({len(response_content)} chars)")
                 if thinking_content:
                     self.display.debug(f"Captured thinking content ({len(thinking_content)} chars)")
@@ -256,6 +289,53 @@ class LLMJsonGenerator:
             if 'response' in locals() and hasattr(response, 'text'):
                 self.display.error(f"Response: {response.text}")
             raise
+    
+    def _update_token_stats(self, prompt: str, response: str, request_start_time: float):
+        """Update token statistics based on prompt and response content."""
+        import time
+        
+        # Rough estimation: 1 token ≈ 4 characters for Chinese, 4 characters for English
+        input_tokens = len(prompt) // 4
+        output_tokens = len(response) // 4
+        
+        self.token_stats['total_input_tokens'] += input_tokens
+        self.token_stats['total_output_tokens'] += output_tokens
+        self.token_stats['total_tokens'] += input_tokens + output_tokens
+        self.token_stats['end_time'] = time.time()
+        
+        request_duration = time.time() - request_start_time
+        self.display.debug(f"Request completed in {request_duration:.2f}s, estimated tokens: {input_tokens} input + {output_tokens} output")
+    
+    def get_token_summary(self) -> Dict[str, Any]:
+        """Get a summary of token usage statistics."""
+        stats = self.token_stats.copy()
+        
+        if stats['start_time'] and stats['end_time']:
+            duration = stats['end_time'] - stats['start_time']
+            stats['total_duration_seconds'] = duration
+            stats['tokens_per_second'] = stats['total_tokens'] / duration if duration > 0 else 0
+            stats['average_tokens_per_request'] = stats['total_tokens'] / stats['requests_count'] if stats['requests_count'] > 0 else 0
+        
+        return stats
+    
+    def print_token_summary(self):
+        """Print a formatted summary of token usage."""
+        stats = self.get_token_summary()
+        
+        self.display.info("=" * 50)
+        self.display.info("📊 Token Usage Summary")
+        self.display.info("=" * 50)
+        self.display.info(f"Total Requests: {stats['requests_count']}")
+        self.display.info(f"Input Tokens: {stats['total_input_tokens']:,}")
+        self.display.info(f"Output Tokens: {stats['total_output_tokens']:,}")
+        self.display.info(f"Total Tokens: {stats['total_tokens']:,}")
+        
+        if 'total_duration_seconds' in stats:
+            self.display.info(f"Total Duration: {stats['total_duration_seconds']:.2f} seconds")
+            self.display.info(f"Token Rate: {stats['tokens_per_second']:.2f} tokens/second")
+            self.display.info(f"Average Tokens/Request: {stats['average_tokens_per_request']:.1f}")
+        
+        self.display.info("=" * 50)
     
     def extract_json_content(self, response: str) -> Optional[str]:
         """Extract JSON content from the LLM response."""
@@ -669,6 +749,97 @@ def read_csv_to_dict(csv_path):
     except Exception as e:
         logger.error(f"Error reading CSV file {csv_path}: {e}")
         return {}
+
+def read_csv_for_batch_processing(csv_file: str) -> List[Dict[str, str]]:
+    """Read a CSV file and return as a list of dictionaries for batch processing.
+    
+    Supports multiple encodings including Windows-created CSV files.
+    """
+    result = []
+    encodings_to_try = ['utf-8-sig', 'utf-8', 'gbk', 'gb2312', 'cp1252', 'latin1']
+    
+    for encoding in encodings_to_try:
+        try:
+            with open(csv_file, 'r', encoding=encoding) as f:
+                reader = csv.DictReader(f)
+                result = []
+                for row in reader:
+                    # Skip empty rows
+                    if any(row.values()):
+                        result.append(row)
+                
+                logger.debug(f"Successfully read CSV file {csv_file} with encoding: {encoding}")
+                return result
+                
+        except (UnicodeDecodeError, UnicodeError):
+            logger.debug(f"Failed to read {csv_file} with encoding: {encoding}")
+            continue
+        except Exception as e:
+            logger.error(f"Error reading CSV file {csv_file} with encoding {encoding}: {e}")
+            continue
+    
+    logger.error(f"Failed to read CSV file {csv_file} with any supported encoding")
+    return result
+
+def load_batch_results(results_csv_path: str) -> Dict[int, Dict[str, str]]:
+    """Load existing batch results from CSV file."""
+    results = {}
+    if os.path.exists(results_csv_path):
+        try:
+            with open(results_csv_path, 'r', encoding='utf-8-sig') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if 'test_index' in row and row['test_index']:
+                        test_index = int(row['test_index'])
+                        results[test_index] = row
+        except Exception as e:
+            logger.error(f"Error loading batch results from {results_csv_path}: {e}")
+    return results
+
+def save_batch_result(results_csv_path: str, test_index: int, test_name: str, 
+                     csv_data: Dict[str, str], json_status: str, onnx_status: str,
+                     output_directory: str, error_message: str = "", generation_count: int = 1):
+    """Save a single batch result to CSV file."""
+    import datetime
+    
+    # Check if file exists to determine if we need headers
+    file_exists = os.path.exists(results_csv_path)
+    
+    # Load existing results
+    existing_results = load_batch_results(results_csv_path) if file_exists else {}
+    
+    # Update the result, incrementing generation count if retrying
+    if test_index in existing_results:
+        # This is a retry, increment the generation count
+        existing_generation_count = int(existing_results[test_index].get('generation_count', 1))
+        generation_count = existing_generation_count + 1
+    
+    existing_results[test_index] = {
+        'test_index': str(test_index),
+        'test_name': test_name,
+        'csv_data': json.dumps(csv_data, ensure_ascii=False),
+        'json_status': json_status,
+        'onnx_status': onnx_status,
+        'output_directory': output_directory,
+        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'error_message': error_message,
+        'generation_count': str(generation_count)
+    }
+    
+    # Write all results back to file with UTF-8 BOM for Windows compatibility
+    try:
+        with open(results_csv_path, 'w', encoding='utf-8-sig', newline='') as f:
+            fieldnames = ['test_index', 'test_name', 'csv_data', 'json_status', 
+                         'onnx_status', 'output_directory', 'timestamp', 'error_message', 'generation_count']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            # Write results sorted by test_index
+            for idx in sorted(existing_results.keys()):
+                writer.writerow(existing_results[idx])
+                
+    except Exception as e:
+        logger.error(f"Error saving batch result to {results_csv_path}: {e}")
 
 def find_operator_params(operator_name, csv_path):
     """
@@ -1162,6 +1333,11 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
         display = get_display()
         generator = LLMJsonGenerator(display=display)
         
+        def cleanup_and_return(result: bool) -> bool:
+            """Helper function to print token summary before returning."""
+            generator.print_token_summary()
+            return result
+        
         # Track the current retry attempt
         current_retry = 0
         last_json_file = None
@@ -1516,9 +1692,9 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                             continue
                         else:
                             display.error(f"ONNX conversion failed after all retries. Process files are kept in {process_dir}")
-                            return False
+                            return cleanup_and_return(False)
                 else:
-                    return True
+                    return cleanup_and_return(True)
             else:
                 if current_retry < max_retries:
                     display.warning(f"JSON generation failed, attempting retry {current_retry + 1}/{max_retries}")
@@ -1528,12 +1704,471 @@ def generate_testcase(operator_string: str, output_dir: str, quiet: bool = False
                     display.error("JSON generation failed after all retries")
                     if process_dir:
                          display.debug(f"Process files are kept in {process_dir}")
-                    return False
+                    return cleanup_and_return(False)
                 
     except Exception as e:
         display.error(f"Error generating test case: {str(e)}")
         if process_dir:
             display.debug(f"Process files are kept in {process_dir}")
+        return cleanup_and_return(False)
+
+def generate_testcase_with_logs(operator_string: str, output_dir: str, quiet: bool = False,
+                               test_point: Optional[str] = None, graph_pattern: Optional[str] = None,
+                               add_req: Optional[str] = None, direct_prompt: Optional[str] = None,
+                               direct_request: Optional[str] = None,
+                               convert_to_onnx: bool = False, max_retries: int = 1, debug: bool = False,
+                               global_generator: Optional['LLMJsonGenerator'] = None) -> Tuple[bool, str, Dict[str, Any]]:
+    """Generate test case and capture detailed logs and status information.
+    
+    Args:
+        global_generator: Shared generator instance for token statistics accumulation
+    
+    Returns:
+        Tuple of (success, captured_logs, detailed_status)
+    """
+    import logging
+    import io
+    
+    # Create a string buffer to capture logs
+    log_capture_string = io.StringIO()
+    log_handler = logging.StreamHandler(log_capture_string)
+    log_handler.setLevel(logging.DEBUG)
+    
+    # Get the logger and add our handler
+    logger = logging.getLogger('json_generator')
+    original_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(log_handler)
+    
+    try:
+        # Run the original function
+        success = generate_testcase(
+            operator_string, output_dir, quiet, test_point, graph_pattern,
+            add_req, direct_prompt, direct_request, convert_to_onnx, max_retries, debug
+        )
+        
+        # Get captured logs
+        captured_logs = log_capture_string.getvalue()
+        
+        # If we have a global generator, accumulate token stats from the internal generator
+        if global_generator:
+            # Extract token information from logs if possible
+            token_pattern_input = r'estimated tokens: (\d+) input'
+            token_pattern_output = r'(\d+) output'
+            
+            for line in captured_logs.split('\n'):
+                if 'estimated tokens:' in line:
+                    import re
+                    input_match = re.search(token_pattern_input, line)
+                    output_match = re.search(token_pattern_output, line)
+                    if input_match and output_match:
+                        input_tokens = int(input_match.group(1))
+                        output_tokens = int(output_match.group(1))
+                        
+                        # Manually update global generator stats
+                        global_generator.token_stats['total_input_tokens'] += input_tokens
+                        global_generator.token_stats['total_output_tokens'] += output_tokens
+                        global_generator.token_stats['total_tokens'] += input_tokens + output_tokens
+                        global_generator.token_stats['requests_count'] += 1
+                        
+                        if global_generator.token_stats['start_time'] is None:
+                            global_generator.token_stats['start_time'] = time.time()
+                        global_generator.token_stats['end_time'] = time.time()
+        
+        # Analyze the results more thoroughly
+        detailed_status = analyze_generation_results(output_dir, captured_logs, convert_to_onnx)
+        
+        return success, captured_logs, detailed_status
+        
+    finally:
+        # Clean up logging
+        logger.removeHandler(log_handler)
+        logger.setLevel(original_level)
+        log_capture_string.close()
+
+def analyze_generation_results(output_dir: str, captured_logs: str, convert_to_onnx: bool) -> Dict[str, Any]:
+    """Analyze generation results based on output files and logs."""
+    result = {
+        'json_status': 'failed',
+        'onnx_status': 'not_required' if not convert_to_onnx else 'failed',
+        'json_file_exists': False,
+        'onnx_file_exists': False,
+        'json_valid': False,
+        'error_messages': [],
+        'success_messages': [],
+        'log_analysis': {}
+    }
+    
+    # Check for output files - look in multiple possible locations
+    json_file = os.path.join(output_dir, "operator_testcase.json")
+    onnx_file = os.path.join(output_dir, "operator_testcase.onnx")
+    
+    # Also check for JSON files in subdirectories (as they might be generated with different names)
+    json_files_found = []
+    onnx_files_found = []
+    
+    if os.path.exists(output_dir):
+        for root, dirs, files in os.walk(output_dir):
+            for file in files:
+                if file.endswith('.json') and 'test_metadata' not in file:
+                    json_files_found.append(os.path.join(root, file))
+                elif file.endswith('.onnx'):
+                    onnx_files_found.append(os.path.join(root, file))
+    
+    # Check JSON file - use the primary file or any found JSON file
+    json_file_to_check = json_file if os.path.exists(json_file) else (json_files_found[0] if json_files_found else json_file)
+    
+    if os.path.exists(json_file_to_check) and os.path.getsize(json_file_to_check) > 0:
+        result['json_file_exists'] = True
+        try:
+            with open(json_file_to_check, 'r', encoding='utf-8') as f:
+                json.load(f)
+            result['json_valid'] = True
+            result['json_status'] = 'success'
+        except json.JSONDecodeError as e:
+            result['error_messages'].append(f"JSON file invalid: {str(e)}")
+    else:
+        if not json_files_found:
+            result['error_messages'].append("JSON file not found or empty")
+    
+    # Check ONNX file if conversion was requested - use any found ONNX file
+    if convert_to_onnx:
+        onnx_file_to_check = onnx_file if os.path.exists(onnx_file) else (onnx_files_found[0] if onnx_files_found else onnx_file)
+        
+        if os.path.exists(onnx_file_to_check) and os.path.getsize(onnx_file_to_check) > 0:
+            result['onnx_file_exists'] = True
+            result['onnx_status'] = 'success'
+        else:
+            if not onnx_files_found:
+                result['error_messages'].append("ONNX file not found or empty")
+    
+    # Analyze logs for specific success/error patterns
+    log_lines = captured_logs.split('\n')
+    for line in log_lines:
+        line_lower = line.lower()
+        line_stripped = line.strip()
+        
+        # Look for success patterns based on actual log output
+        if '✅ successfully converted to onnx model' in line_lower:
+            result['success_messages'].append("ONNX conversion successful")
+            result['onnx_status'] = 'success'
+        elif '✅ generated valid json file' in line_lower:
+            result['success_messages'].append("JSON generation successful") 
+            result['json_status'] = 'success'
+        elif 'successfully converted' in line_lower and 'onnx model' in line_lower:
+            result['success_messages'].append("ONNX conversion successful")
+            result['onnx_status'] = 'success'
+        elif 'generated valid json file:' in line_lower:
+            result['success_messages'].append("JSON generation successful")
+            result['json_status'] = 'success'
+        elif '✅ successfully generated test case' in line_lower:
+            result['success_messages'].append("Test case generation successful")
+            # Don't set status here as it's handled by file checks
+        elif '[success]' in line_lower and 'onnx' in line_lower:
+            result['success_messages'].append("ONNX conversion successful")
+            result['onnx_status'] = 'success'
+        elif '[success]' in line_lower and ('json' in line_lower or 'ir json' in line_lower):
+            result['success_messages'].append("JSON generation successful")
+            result['json_status'] = 'success'
+        elif '✅' in line and any(keyword in line_lower for keyword in ['json', 'onnx', 'generated', 'converted']):
+            result['success_messages'].append(line_stripped)
+            # Try to determine what succeeded from the message
+            if 'onnx' in line_lower:
+                result['onnx_status'] = 'success'
+            elif 'json' in line_lower:
+                result['json_status'] = 'success'
+            
+        # Look for error patterns - more comprehensive
+        elif 'failed to convert' in line_lower and 'onnx' in line_lower:
+            result['error_messages'].append("ONNX conversion failed")
+            result['onnx_status'] = 'failed'
+        elif 'onnx conversion failed' in line_lower:
+            result['error_messages'].append("ONNX conversion failed")
+            result['onnx_status'] = 'failed'
+        elif 'invalid json' in line_lower:
+            result['error_messages'].append("Invalid JSON generated")
+            result['json_status'] = 'failed'
+        elif 'json generation failed' in line_lower:
+            result['error_messages'].append("JSON generation failed")
+            result['json_status'] = 'failed'
+        elif 'failed to generate' in line_lower:
+            if 'json' in line_lower:
+                result['json_status'] = 'failed'
+            if 'onnx' in line_lower:
+                result['onnx_status'] = 'failed'
+            result['error_messages'].append(line_stripped)
+        elif '❌' in line or ('error' in line_lower and any(keyword in line_lower for keyword in ['generation', 'convert', 'json', 'onnx', 'failed'])):
+            result['error_messages'].append(line_stripped)
+        elif 'return code:' in line_lower and 'return code: 0' not in line_lower:
+            # Non-zero return codes indicate failure
+            result['error_messages'].append("Process returned error code")
+            if 'onnx' in line_lower or 'convert' in line_lower:
+                result['onnx_status'] = 'failed'
+    
+    # Final status determination based on comprehensive analysis
+    if result['json_valid'] and result['json_file_exists']:
+        result['json_status'] = 'success'
+    
+    if convert_to_onnx and result['onnx_file_exists']:
+        result['onnx_status'] = 'success'
+    elif not convert_to_onnx:
+        result['onnx_status'] = 'not_required'
+    
+    return result
+
+def generate_equivalent_command(prompt_file: str, output_dir: str, convert_to_onnx: bool, 
+                               max_retries: int, debug: bool, row_data: Dict[str, str], 
+                               original_args: Optional[Dict[str, Any]] = None) -> str:
+    """Generate the equivalent ai-json-generator command for a single test case."""
+    
+    # Create a rendered prompt file for this specific test case
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.prompt.txt', delete=False) as f:
+        # Read the original template
+        with open(prompt_file, 'r', encoding='utf-8') as template_file:
+            template_content = template_file.read()
+        
+        # Render with Jinja2
+        try:
+            jinja_template = Template(template_content)
+            rendered_content = jinja_template.render(**row_data)
+            f.write(rendered_content)
+            temp_prompt_file = f.name
+        except Exception:
+            # Fallback to simple replacement
+            rendered_content = template_content
+            for key, value in row_data.items():
+                rendered_content = rendered_content.replace(f"{{{key}}}", value)
+            f.write(rendered_content)
+            temp_prompt_file = f.name
+    
+    # Build the command
+    cmd_parts = ["ai-json-generator"]
+    cmd_parts.append(f"--direct-prompt {temp_prompt_file}")
+    cmd_parts.append(f"-o {output_dir}")
+    
+    if convert_to_onnx:
+        cmd_parts.append("--convert-to-onnx")
+    
+    if max_retries > 1:
+        cmd_parts.append(f"--max-retries {max_retries}")
+    
+    if debug:
+        cmd_parts.append("--debug")
+    
+    # Add any other original arguments
+    if original_args:
+        if original_args.get('quiet'):
+            cmd_parts.append("--quiet")
+        if original_args.get('no_color'):
+            cmd_parts.append("--no-color")
+    
+    command = " ".join(cmd_parts)
+    
+    # Clean up temp file
+    try:
+        os.unlink(temp_prompt_file)
+    except:
+        pass
+    
+    return command
+
+def generate_batch_testcases(csv_file: str, prompt_file: str, output_dir: str, 
+                            convert_to_onnx: bool = False, max_retries: int = 1, 
+                            debug: bool = False, quiet: bool = False,
+                            original_args: Optional[Dict[str, Any]] = None) -> bool:
+    """Generate test cases for all rows in a CSV file using Jinja2 template."""
+    display = get_display()
+    
+    # Initialize a shared generator for token statistics
+    from .generate_json import LLMJsonGenerator
+    global_generator = LLMJsonGenerator(display=display)
+    
+    # Read CSV file
+    display.info(f"Reading CSV file: {csv_file}")
+    csv_data = read_csv_for_batch_processing(csv_file)
+    
+    if not csv_data:
+        display.error(f"No data found in CSV file: {csv_file}")
+        return False
+    
+    display.info(f"Found {len(csv_data)} test points in CSV file")
+    
+    # Read prompt template
+    try:
+        with open(prompt_file, 'r', encoding='utf-8') as f:
+            prompt_template = f.read()
+        display.debug(f"Loaded prompt template from {prompt_file}")
+    except Exception as e:
+        display.error(f"Error reading prompt file: {e}")
+        return False
+    
+    # Create main output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Initialize or load results CSV
+    results_csv_path = os.path.join(output_dir, "batch_results.csv")
+    completed_tests = load_batch_results(results_csv_path)
+    
+    success_count = len([r for r in completed_tests.values() if r.get('json_status') == 'success'])
+    total_count = len(csv_data)
+    
+    # Check for existing completed tests and show resume info
+    if completed_tests:
+        completed_count = len(completed_tests)
+        display.info(f"Found {completed_count} previously completed test cases, resuming from where we left off")
+    
+    # Process each row in CSV
+    for i, row_data in enumerate(csv_data, 1):
+        # Check if this test is already completed successfully
+        if i in completed_tests:
+            existing_result = completed_tests[i]
+            if existing_result.get('json_status') == 'success':
+                if not convert_to_onnx or existing_result.get('onnx_status') == 'success':
+                    display.info(f"Skipping test point {i}/{total_count} (already completed successfully)")
+                    continue
+        
+        display.info(f"Processing test point {i}/{total_count}")
+        
+        # Create subdirectory for this test point
+        # Use the first column value as the subdirectory name, fallback to index
+        first_key = list(row_data.keys())[0] if row_data else str(i)
+        first_value = row_data.get(first_key, str(i))
+        
+        # Sanitize directory name
+        dir_name = re.sub(r'[^\w\-_\.]', '_', str(first_value))
+        test_output_dir = os.path.join(output_dir, f"test_{i:03d}_{dir_name}")
+        test_name = f"{first_value}"
+        
+        # Generate and display the equivalent ai-json-generator command for this test case
+        equivalent_command = generate_equivalent_command(prompt_file, test_output_dir, convert_to_onnx, max_retries, debug, row_data, original_args)
+        display.info(f"📋 Equivalent command for test case {i}:")
+        display.info(f"   {equivalent_command}")
+        
+        json_status = "failed"
+        onnx_status = "not_attempted" if convert_to_onnx else "not_required"
+        error_message = ""
+        
+        try:
+            os.makedirs(test_output_dir, exist_ok=True)
+            
+            # Create a temporary prompt file with Jinja2 variables replaced
+            temp_prompt_file = os.path.join(test_output_dir, "rendered_prompt.txt")
+            
+            # Render template with row data
+            try:
+                jinja_template = Template(prompt_template)
+                rendered_prompt = jinja_template.render(**row_data)
+                
+                with open(temp_prompt_file, 'w', encoding='utf-8') as f:
+                    f.write(rendered_prompt)
+                
+                display.debug(f"Rendered prompt for test point {i} using variables: {list(row_data.keys())}")
+                
+            except Exception as e:
+                error_message = f"Template rendering error: {str(e)}"
+                display.error(f"Error rendering template for test point {i}: {e}")
+                save_batch_result(results_csv_path, i, test_name, row_data, 
+                                json_status, onnx_status, os.path.basename(test_output_dir), error_message)
+                continue
+            
+            # Generate test case using the rendered prompt with detailed logging
+            success, captured_logs, detailed_status = generate_testcase_with_logs(
+                "",  # No operator string needed for direct prompt
+                test_output_dir,
+                quiet,
+                direct_prompt=temp_prompt_file,
+                convert_to_onnx=convert_to_onnx,
+                max_retries=max_retries,
+                debug=debug,
+                global_generator=global_generator
+            )
+            
+            # Extract status from detailed analysis
+            json_status = detailed_status['json_status']
+            onnx_status = detailed_status['onnx_status']
+            
+            # Compile error message from analysis
+            error_messages = detailed_status.get('error_messages', [])
+            success_messages = detailed_status.get('success_messages', [])
+            
+            if error_messages:
+                error_message = "; ".join(error_messages)
+            else:
+                error_message = ""
+            
+            # Display results based on detailed analysis
+            if json_status == "success":
+                display.success(f"Successfully generated JSON for test case {i}/{total_count}")
+            else:
+                display.error(f"Failed to generate JSON for test case {i}/{total_count}")
+            
+            if convert_to_onnx:
+                if onnx_status == "success":
+                    display.success(f"Successfully generated ONNX for test case {i}/{total_count}")
+                elif onnx_status == "failed":
+                    display.error(f"Failed to generate ONNX for test case {i}/{total_count}")
+            
+            # Update success count based on comprehensive analysis
+            if json_status == "success" and (not convert_to_onnx or onnx_status == "success"):
+                success_count += 1
+                
+                # Save test point metadata with detailed analysis
+                metadata = {
+                    "test_point_index": i,
+                    "csv_data": row_data,
+                    "output_directory": test_output_dir,
+                    "json_status": json_status,
+                    "onnx_status": onnx_status,
+                    "success": success,
+                    "detailed_status": detailed_status,
+                    "captured_logs": captured_logs if debug else "",
+                    "success_messages": success_messages,
+                    "error_messages": error_messages
+                }
+                metadata_file = os.path.join(test_output_dir, "test_metadata.json")
+                with open(metadata_file, 'w', encoding='utf-8') as f:
+                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+            else:
+                # Display failure with specific reasons
+                failure_reasons = []
+                if json_status == "failed":
+                    failure_reasons.append("JSON generation failed")
+                if convert_to_onnx and onnx_status == "failed":
+                    failure_reasons.append("ONNX conversion failed")
+                
+                if error_messages:
+                    failure_reasons.extend(error_messages)
+                
+                failure_message = "; ".join(failure_reasons) if failure_reasons else "Unknown failure"
+                display.error(f"Failed to generate test case {i}/{total_count}: {failure_message}")
+            
+            # Save result to CSV
+            save_batch_result(results_csv_path, i, test_name, row_data, 
+                            json_status, onnx_status, os.path.basename(test_output_dir), error_message)
+                
+        except Exception as e:
+            error_message = f"Processing error: {str(e)}"
+            display.error(f"Error processing test point {i}: {e}")
+            save_batch_result(results_csv_path, i, test_name, row_data, 
+                            json_status, onnx_status, os.path.basename(test_output_dir), error_message)
+            continue
+    
+    # Print summary
+    display.info(f"Batch generation completed: {success_count}/{total_count} test cases generated successfully")
+    
+    # Print token usage summary for all LLM calls during batch processing
+    # Note: Token stats are collected globally by all generator instances
+    global_generator.print_token_summary()
+    
+    if success_count == total_count:
+        display.success("All test cases generated successfully!")
+        return True
+    elif success_count > 0:
+        display.warning(f"Partial success: {success_count}/{total_count} test cases generated")
+        return True
+    else:
+        display.error("No test cases were generated successfully")
         return False
 
 def main():
@@ -1552,6 +2187,7 @@ def main():
     parser.add_argument('--add-req', help='Add additional requirements txt')
     parser.add_argument('--direct-prompt', help='Path to a prompt file to use directly instead of using the template system')
     parser.add_argument('--direct-request', help='Path to a txt file containing test case requirements to replace the default test point content')
+    parser.add_argument('--batch-csv', help='Path to a CSV file containing test points for batch generation. CSV headers will be used as Jinja2 template variables.')
     parser.add_argument('--convert-to-onnx', action='store_true', help='Convert generated JSON to ONNX model using irjson-convert')
     parser.add_argument('--max-retries', type=int, default=1, help='Maximum number of retry attempts for failed ONNX conversion')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode with detailed logging and intermediate files')
@@ -1570,9 +2206,9 @@ def main():
     if not args.output_dir:
         args.output_dir = 'outputs'
     
-    # Check if operators are provided when not using direct prompt or direct request
-    if not args.operator and not args.direct_prompt and not args.direct_request:
-        display.error("Please specify at least one operator name, provide a direct prompt file, or provide a direct request file")
+    # Check if operators are provided when not using direct prompt, direct request, or batch CSV
+    if not args.operator and not args.direct_prompt and not args.direct_request and not args.batch_csv:
+        display.error("Please specify at least one operator name, provide a direct prompt file, provide a direct request file, or provide a batch CSV file")
         return 1
     
     # Print header
@@ -1585,29 +2221,67 @@ def main():
     else:
         display.print_generation_start(None, args.output_dir)
     
-    # Determine the operator string  
-    operator_string = ""
-    if args.operator:
-        # In case of multiple arguments (e.g. MatMul Add Slice), join them
-        # If a single string with spaces was passed (e.g. "MatMul Add Slice"), use as is
-        if len(args.operator) == 1:
-            operator_string = args.operator[0]
-        else:
-            operator_string = ' '.join(args.operator)
-    
-    success = generate_testcase(
-        operator_string, 
-        args.output_dir, 
-        args.quiet,
-        test_point=args.test_point,
-        graph_pattern=args.graph_pattern,
-        add_req=args.add_req,
-        direct_prompt=args.direct_prompt,
-        direct_request=args.direct_request,
-        convert_to_onnx=args.convert_to_onnx,
-        max_retries=args.max_retries,
-        debug=debug_mode
-    )
+    # Handle batch CSV processing
+    if args.batch_csv:
+        # Batch CSV mode requires direct_prompt to be specified
+        if not args.direct_prompt:
+            display.error("Batch CSV mode (--batch-csv) requires --direct-prompt to be specified")
+            return 1
+        
+        # Verify files exist
+        if not os.path.exists(args.batch_csv):
+            display.error(f"CSV file not found: {args.batch_csv}")
+            return 1
+        
+        if not os.path.exists(args.direct_prompt):
+            display.error(f"Prompt file not found: {args.direct_prompt}")
+            return 1
+        
+        display.info(f"Starting batch generation using CSV: {args.batch_csv}")
+        display.info(f"Using prompt template: {args.direct_prompt}")
+        
+        # Prepare original arguments for command generation
+        original_args = {
+            'quiet': args.quiet,
+            'no_color': getattr(args, 'no_color', False),
+            'verbose': getattr(args, 'verbose', False)
+        }
+        
+        success = generate_batch_testcases(
+            args.batch_csv,
+            args.direct_prompt,
+            args.output_dir,
+            convert_to_onnx=args.convert_to_onnx,
+            max_retries=args.max_retries,
+            debug=debug_mode,
+            quiet=args.quiet,
+            original_args=original_args
+        )
+    else:
+        # Original single test case generation
+        # Determine the operator string  
+        operator_string = ""
+        if args.operator:
+            # In case of multiple arguments (e.g. MatMul Add Slice), join them
+            # If a single string with spaces was passed (e.g. "MatMul Add Slice"), use as is
+            if len(args.operator) == 1:
+                operator_string = args.operator[0]
+            else:
+                operator_string = ' '.join(args.operator)
+        
+        success = generate_testcase(
+            operator_string, 
+            args.output_dir, 
+            args.quiet,
+            test_point=args.test_point,
+            graph_pattern=args.graph_pattern,
+            add_req=args.add_req,
+            direct_prompt=args.direct_prompt,
+            direct_request=args.direct_request,
+            convert_to_onnx=args.convert_to_onnx,
+            max_retries=args.max_retries,
+            debug=debug_mode
+        )
     
     # Print summary
     display.print_summary(success)

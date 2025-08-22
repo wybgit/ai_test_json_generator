@@ -61,3 +61,7 @@ backup/
 *.attempt*.response.txt
 *.retry*.prompt.txt
 *.json.error 
+
+# Web Output
+web/test_output/*
+web/test_output/*
