@@ -2157,10 +2157,6 @@ def generate_batch_testcases(csv_file: str, prompt_file: str, output_dir: str,
     # Print summary
     display.info(f"Batch generation completed: {success_count}/{total_count} test cases generated successfully")
     
-    # Print token usage summary for all LLM calls during batch processing
-    # Note: Token stats are collected globally by all generator instances
-    global_generator.print_token_summary()
-    
     if success_count == total_count:
         display.success("All test cases generated successfully!")
         return True

@@ -1,5 +1,0 @@
-算子名,算子级联信息,算子级联结构,特殊要求
-Add,Abs+Relu,串联,支持广播
-Sub,Sub+Relu,串联,注意符号
-Mul,Mul+Tanh,串联,范围控制
-Div,Div+Sigmoid,串联,除零保护

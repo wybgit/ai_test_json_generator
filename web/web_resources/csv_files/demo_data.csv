@@ -1,6 +1,0 @@
-算子名,算子级联信息,算子级联结构,特殊要求
-Add,Abs+Relu+Add,串联,需要支持广播操作
-Conv,Conv2D+BatchNorm+Relu,串联,使用3x3卷积核
-Concat,Split+Concat,先分离后合并,在第1维度进行操作
-Div,Mul+Div,串联,注意除零保护
-Relu,LeakyRelu+Relu+Sigmoid,激活函数组合,输出范围[0,1]
