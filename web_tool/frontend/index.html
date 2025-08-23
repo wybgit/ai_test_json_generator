@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 工具 Web 界面</title>
+    
+    <!-- CSS样式 -->
+    <link href="static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="static/css/main.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-robot me-2"></i>
+                AI 工具 Web 界面
+            </a>
+            <div class="navbar-nav ms-auto">
+                <button class="btn btn-outline-light" id="historyBtn">
+                    <i class="fas fa-history me-1"></i>
+                    执行历史
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要内容 -->
+    <div class="container mt-4">
+        <!-- 工具选择器 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="fas fa-tools me-2"></i>
+                                选择工具
+                            </h5>
+                            <button id="toggleToolSelector" class="btn btn-outline-secondary btn-sm" style="display: none;">
+                                <i class="fas fa-chevron-up me-1"></i>
+                                <span class="toggle-text">收起</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body" id="toolSelectorBody">
+                        <div id="toolSelector" class="row g-3">
+                            <!-- 工具卡片将在这里动态生成 -->
+                        </div>
+                    </div>
+                    <!-- 工具详细信息区域 -->
+                    <div id="selectedToolInfo" class="card-body border-top" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-2">
+                                <div id="selectedToolIcon" class="text-center">
+                                    <!-- 工具图标 -->
+                                </div>
+                            </div>
+                            <div class="col-md-10">
+                                <h6 id="selectedToolName" class="fw-bold text-primary"></h6>
+                                <p id="selectedToolDescription" class="text-muted mb-2"></p>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <small class="text-muted">支持格式:</small>
+                                        <div id="selectedToolFormats" class="small"></div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <small class="text-muted">执行类型:</small>
+                                        <div id="selectedToolType" class="small"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 工具配置区域 -->
+        <div id="toolConfigSection" class="row mb-4" style="display: none;">
+            <div class="col-lg-6">
+                <!-- 模板配置 -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-file-code me-2"></i>
+                            模板配置
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-8">
+                                <label for="templateSelect" class="form-label">选择模板</label>
+                                <select id="templateSelect" class="form-select">
+                                    <option value="">选择一个模板...</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="templateUpload" class="form-label">或上传新模板</label>
+                                <input type="file" id="templateUpload" class="form-control" accept=".txt">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="templateContent" class="form-label">模板内容</label>
+                            <textarea id="templateContent" class="form-control" rows="8" placeholder="模板内容将在这里显示..."></textarea>
+                        </div>
+
+                        <div id="templateVariables" class="mb-3" style="display: none;">
+                            <label class="form-label">模板变量</label>
+                            <div id="variablesList" class="border rounded p-3 bg-light">
+                                <!-- 变量输入框将在这里动态生成 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CSV配置 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-table me-2"></i>
+                            数据配置
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="dataMode" id="manualMode" value="manual" checked>
+                                <label class="form-check-label" for="manualMode">
+                                    手动填写变量
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="dataMode" id="csvMode" value="csv">
+                                <label class="form-check-label" for="csvMode">
+                                    使用 CSV 数据
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="csvSection" style="display: none;">
+                            <div class="row mb-3">
+                                <div class="col-md-8">
+                                    <label for="csvSelect" class="form-label">选择 CSV 文件</label>
+                                    <select id="csvSelect" class="form-select">
+                                        <option value="">选择一个 CSV 文件...</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="csvUpload" class="form-label">或上传新 CSV</label>
+                                    <input type="file" id="csvUpload" class="form-control" accept=".csv">
+                                </div>
+                            </div>
+                            
+                            <div id="csvPreview" class="table-responsive" style="display: none;">
+                                <table id="csvTable" class="table table-striped table-sm">
+                                    <!-- CSV数据预览 -->
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <!-- 预览和执行区域 -->
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-eye me-2"></i>
+                            模板预览
+                        </h5>
+                        <button id="previewBtn" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-sync-alt me-1"></i>
+                            刷新预览
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <pre id="templatePreview" class="language-text"><code>预览内容将在这里显示...</code></pre>
+                    </div>
+                </div>
+
+                <!-- 执行配置 -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-cog me-2"></i>
+                            执行配置
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="maxRetries" class="form-label">最大重试次数</label>
+                            <input type="number" id="maxRetries" class="form-control" value="3" min="1" max="10">
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button id="executeBtn" class="btn btn-success btn-lg">
+                                <i class="fas fa-play me-2"></i>
+                                开始执行
+                            </button>
+                            <button id="stopBtn" class="btn btn-danger" style="display: none;">
+                                <i class="fas fa-stop me-2"></i>
+                                停止执行
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 执行日志区域 -->
+                <div id="executionLogCard" class="card" style="display: none;">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-terminal me-2"></i>
+                            执行日志
+                        </h5>
+                        <div>
+                            <span id="executionStatus" class="badge bg-secondary me-2">就绪</span>
+                            <button id="clearLogBtn" class="btn btn-outline-secondary btn-sm me-2">
+                                <i class="fas fa-eraser me-1"></i>
+                                清空日志
+                            </button>
+                            <button id="exportLogBtn" class="btn btn-outline-info btn-sm">
+                                <i class="fas fa-download me-1"></i>
+                                导出日志
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- 执行进度和统计 -->
+                        <div id="executionProgress" class="mb-3" style="display: none;">
+                            <div class="row text-center">
+                                <div class="col-md-3">
+                                    <div class="d-flex align-items-center justify-content-center">
+                                        <i class="fas fa-clock text-info me-2"></i>
+                                        <div>
+                                            <small class="text-muted">执行时间</small>
+                                            <div id="executionTime" class="fw-bold">00:00</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="d-flex align-items-center justify-content-center">
+                                        <i class="fas fa-list text-primary me-2"></i>
+                                        <div>
+                                            <small class="text-muted">日志行数</small>
+                                            <div id="logLineCount" class="fw-bold">0</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="d-flex align-items-center justify-content-center">
+                                        <i class="fas fa-memory text-warning me-2"></i>
+                                        <div>
+                                            <small class="text-muted">当前状态</small>
+                                            <div id="currentActivity" class="fw-bold">等待中...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="d-flex align-items-center justify-content-center">
+                                        <i class="fas fa-hashtag text-success me-2"></i>
+                                        <div>
+                                            <small class="text-muted">执行ID</small>
+                                            <div id="currentExecutionId" class="fw-bold small">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <hr class="my-3">
+                        </div>
+
+                        <!-- 日志内容 -->
+                        <div id="logContainer" class="log-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 结果区域 -->
+        <div id="resultsSection" class="row mt-4" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-download me-2"></i>
+                            执行结果
+                        </h5>
+                        <div class="btn-group">
+                            <button id="listViewBtn" class="btn btn-outline-secondary btn-sm active">
+                                <i class="fas fa-list me-1"></i>
+                                列表视图
+                            </button>
+                            <button id="treeViewBtn" class="btn btn-outline-secondary btn-sm">
+                                <i class="fas fa-sitemap me-1"></i>
+                                目录树
+                            </button>
+                            <button id="downloadAllBtn" class="btn btn-primary btn-sm ms-2">
+                                <i class="fas fa-file-archive me-1"></i>
+                                下载全部
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- 文件搜索 -->
+                        <div class="file-search">
+                            <i class="fas fa-search search-icon"></i>
+                            <input type="text" id="fileSearchInput" class="form-control" placeholder="搜索文件...">
+                        </div>
+                        
+                        <!-- 结果统计 -->
+                        <div id="resultsStats" class="mb-3" style="display: none;">
+                            <div class="row text-center">
+                                <div class="col-md-3">
+                                    <small class="text-muted">总文件数</small>
+                                    <div id="totalFiles" class="fw-bold">0</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <small class="text-muted">总大小</small>
+                                    <div id="totalSize" class="fw-bold">0 B</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <small class="text-muted">JSON文件</small>
+                                    <div id="jsonCount" class="fw-bold">0</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <small class="text-muted">其他文件</small>
+                                    <div id="otherCount" class="fw-bold">0</div>
+                                </div>
+                            </div>
+                            <hr>
+                        </div>
+
+                        <!-- 列表视图 -->
+                        <div id="resultsListView" class="list-group">
+                            <!-- 结果文件列表 -->
+                        </div>
+
+                        <!-- 目录树视图 -->
+                        <div id="resultsTreeView" style="display: none;">
+                            <ul id="fileTree" class="file-tree">
+                                <!-- 文件目录树 -->
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文件查看模态框 -->
+    <div class="modal fade" id="fileViewModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-file-alt me-2"></i>
+                        <span id="modalFileName">文件内容</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="fileContent" class="file-viewer-container">
+                        <!-- 文件内容将在这里动态生成 -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" id="copyFileBtn">
+                        <i class="fas fa-copy me-1"></i>
+                        复制内容
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    <button type="button" id="downloadFileBtn" class="btn btn-primary">
+                        <i class="fas fa-download me-1"></i>
+                        下载文件
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading 模态框 -->
+    <div class="modal fade" id="loadingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center">
+                    <div class="spinner-border text-primary me-3" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span id="loadingText">正在处理...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    
+    <!-- 应用脚本 -->
+    <script src="src/services/api.js"></script>
+    <script src="src/services/websocket.js"></script>
+    <script src="src/utils/helpers.js"></script>
+    <script src="src/components/toolSelector.js"></script>
+    <script src="src/components/templateManager.js"></script>
+    <script src="src/components/csvManager.js"></script>
+    <script src="src/components/executionManager.js"></script>
+    <script src="src/components/resultsManager.js"></script>
+    <script src="src/components/historyManager.js"></script>
+    <script src="src/main.js"></script>
+</body>
+</html>

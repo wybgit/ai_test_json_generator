@@ -1,0 +1,14 @@
+{
+  "name": "ai-tools-frontend",
+  "version": "1.0.0",
+  "description": "AI Tools Web Interface Frontend",
+  "main": "index.js",
+  "scripts": {
+    "dev": "python -m http.server 8080",
+    "build": "echo 'Build complete'",
+    "start": "python -m http.server 8080"
+  },
+  "keywords": ["ai", "tools", "web", "interface"],
+  "author": "AI Tools Team",
+  "license": "MIT"
+}
