@@ -90,10 +90,20 @@ class TemplateManager {
     }
 
     async loadTemplate(templateName) {
+        let loadingShown = false;
         try {
+            console.log('开始加载模板:', templateName);
             showLoading('加载模板中...');
+            loadingShown = true;
             
             const response = await apiService.getTemplateContent(templateName);
+            console.log('API响应成功，内容长度:', response?.content?.length || 0);
+            
+            // 验证响应
+            if (!response || !response.content) {
+                throw new Error('模板内容为空或无效');
+            }
+            
             this.currentTemplate = response;
             
             // 显示模板内容
@@ -103,25 +113,38 @@ class TemplateManager {
             }
 
             // 提取并显示变量
-            this.variables = response.variables;
+            this.variables = response.variables || [];
             this.renderVariables();
             
-            // 更新预览
-            this.updatePreview();
-
+            // 确保隐藏loading
+            console.log('模板加载完成，隐藏loading');
             hideLoading();
+            loadingShown = false;
+            
             showToast(`模板 "${templateName}" 加载成功`, 'success');
             
+            // 最后更新预览（异步，避免阻塞）
+            setTimeout(() => {
+                this.updatePreview();
+            }, 100);
+            
         } catch (error) {
-            hideLoading();
             console.error('加载模板失败:', error);
             showToast('加载模板失败: ' + error.message, 'error');
+        } finally {
+            // 最终保障：确保loading被隐藏
+            if (loadingShown) {
+                console.log('在finally中隐藏loading');
+                hideLoading();
+            }
         }
     }
 
     async uploadTemplate(file) {
+        let loadingShown = false;
         try {
             showLoading('上传模板中...');
+            loadingShown = true;
             
             const response = await apiService.uploadTemplate(file);
             
@@ -136,12 +159,17 @@ class TemplateManager {
             }
 
             hideLoading();
+            loadingShown = false;
             showToast('模板上传成功', 'success');
             
         } catch (error) {
-            hideLoading();
             console.error('上传模板失败:', error);
             showToast('上传模板失败: ' + error.message, 'error');
+        } finally {
+            // 最终保障：确保loading被隐藏
+            if (loadingShown) {
+                hideLoading();
+            }
         }
     }
 
@@ -232,23 +260,31 @@ class TemplateManager {
     }
 
     async updatePreview() {
+        console.log('开始更新预览');
         const templateContent = document.getElementById('templateContent');
         const previewElement = document.getElementById('templatePreview');
         
-        if (!templateContent || !previewElement) return;
+        if (!templateContent || !previewElement) {
+            console.log('预览元素未找到');
+            return;
+        }
 
         const content = templateContent.value.trim();
         if (!content) {
             previewElement.innerHTML = '<code>请输入模板内容...</code>';
+            console.log('模板内容为空，显示默认提示');
             return;
         }
 
         try {
+            console.log('调用预览API');
             const response = await apiService.previewTemplate(content, this.variableValues);
+            console.log('预览API响应:', response);
             
             // 显示预览内容
             const highlighted = highlightCode(response.preview, 'text');
             previewElement.innerHTML = `<code>${highlighted}</code>`;
+            console.log('预览内容更新完成');
 
             // 显示验证信息（现在在输入框下方显示，不需要全局提示）
             // if (!response.validation.is_valid) {
@@ -261,6 +297,8 @@ class TemplateManager {
         } catch (error) {
             console.error('预览失败:', error);
             previewElement.innerHTML = `<code class="text-danger">预览错误: ${escapeHtml(error.message)}</code>`;
+            // 不要让预览错误影响模板加载
+            console.log('预览失败，但不影响模板加载');
         }
     }
 

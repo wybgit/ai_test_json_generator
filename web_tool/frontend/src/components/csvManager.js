@@ -100,28 +100,43 @@ class CsvManager {
     }
 
     async loadCsvFile(csvFileName) {
+        let loadingShown = false;
         try {
             showLoading('加载CSV文件中...');
+            loadingShown = true;
             
             const response = await apiService.getCsvContent(csvFileName);
+            
+            // 验证响应
+            if (!response || !response.data) {
+                throw new Error('CSV文件内容为空或无效');
+            }
+            
             this.currentCsvData = response.data;
             
             // 显示CSV预览
             this.renderCsvPreview(response.data, response.columns);
             
             hideLoading();
+            loadingShown = false;
             showToast(`CSV文件 "${csvFileName}" 加载成功`, 'success');
             
         } catch (error) {
-            hideLoading();
             console.error('加载CSV文件失败:', error);
             showToast('加载CSV文件失败: ' + error.message, 'error');
+        } finally {
+            // 最终保障：确保loading被隐藏
+            if (loadingShown) {
+                hideLoading();
+            }
         }
     }
 
     async uploadCsvFile(file) {
+        let loadingShown = false;
         try {
             showLoading('上传CSV文件中...');
+            loadingShown = true;
             
             const response = await apiService.uploadCsv(file);
             
@@ -137,12 +152,17 @@ class CsvManager {
             }
             
             hideLoading();
+            loadingShown = false;
             showToast('CSV文件上传成功', 'success');
             
         } catch (error) {
-            hideLoading();
             console.error('上传CSV文件失败:', error);
             showToast('上传CSV文件失败: ' + error.message, 'error');
+        } finally {
+            // 最终保障：确保loading被隐藏
+            if (loadingShown) {
+                hideLoading();
+            }
         }
     }
 

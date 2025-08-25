@@ -141,6 +141,9 @@ function getToastTitle(type) {
     return titles[type] || '信息';
 }
 
+// 全局modal实例存储
+let currentLoadingModal = null;
+
 // 显示加载状态
 function showLoading(text = '正在处理...') {
     const loadingModal = document.getElementById('loadingModal');
@@ -151,38 +154,68 @@ function showLoading(text = '正在处理...') {
     }
     
     if (loadingModal) {
-        // 如果已经有modal实例，先隐藏
-        const existingModal = bootstrap.Modal.getInstance(loadingModal);
-        if (existingModal) {
-            existingModal.hide();
-        }
+        // 先确保之前的modal被正确清理
+        hideLoading();
         
-        const modal = new bootstrap.Modal(loadingModal);
-        modal.show();
-        return modal;
+        // 创建新的modal实例
+        currentLoadingModal = new bootstrap.Modal(loadingModal, {
+            backdrop: 'static',
+            keyboard: false
+        });
+        currentLoadingModal.show();
+        return currentLoadingModal;
     }
 }
 
 // 隐藏加载状态
 function hideLoading() {
+    console.log('hideLoading被调用');
     const loadingModal = document.getElementById('loadingModal');
+    
+    // 优先使用全局存储的实例
+    if (currentLoadingModal) {
+        try {
+            currentLoadingModal.hide();
+            console.log('使用全局实例隐藏modal成功');
+        } catch (error) {
+            console.warn('隐藏loading modal时出错:', error);
+        }
+        currentLoadingModal = null;
+    }
+    
+    // 备用方案：通过Bootstrap获取实例
     if (loadingModal) {
         const modal = bootstrap.Modal.getInstance(loadingModal);
         if (modal) {
-            modal.hide();
-        } else {
-            // 如果没有实例，直接隐藏模态框
-            loadingModal.style.display = 'none';
-            loadingModal.classList.remove('show');
-            document.body.classList.remove('modal-open');
-            
-            // 移除backdrop
-            const backdrop = document.querySelector('.modal-backdrop');
-            if (backdrop) {
-                backdrop.remove();
+            try {
+                modal.hide();
+                console.log('使用Bootstrap实例隐藏modal成功');
+            } catch (error) {
+                console.warn('通过Bootstrap实例隐藏modal时出错:', error);
             }
         }
     }
+    
+    // 强制清理方案：直接操作DOM
+    setTimeout(() => {
+        if (loadingModal) {
+            loadingModal.style.display = 'none';
+            loadingModal.classList.remove('show');
+            loadingModal.setAttribute('aria-hidden', 'true');
+            loadingModal.removeAttribute('aria-modal');
+            loadingModal.removeAttribute('role');
+            
+            // 清理body样式
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+            
+            // 移除所有backdrop
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => backdrop.remove());
+            console.log('强制清理完成');
+        }
+    }, 100);
 }
 
 // 确认对话框
