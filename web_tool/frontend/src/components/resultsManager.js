@@ -354,8 +354,6 @@ class ResultsManager {
                 return;
             }
             
-            showLoading('加载文件内容...');
-            
             // 对文件路径进行编码以处理特殊字符
             const encodedFilePath = encodeURIComponent(filePath);
             console.log('编码后的文件路径:', encodedFilePath);
@@ -371,10 +369,7 @@ class ResultsManager {
             // 显示文件内容模态框
             this.showFileModal(fileName, response.content, response.is_binary);
             
-            hideLoading();
-            
         } catch (error) {
-            hideLoading();
             console.error('查看文件失败:', {
                 error: error,
                 message: error.message,
@@ -440,9 +435,6 @@ class ResultsManager {
             }
         }
 
-        // 确保先隐藏loading
-        hideLoading();
-        
         // 显示模态框
         const bootstrapModal = new bootstrap.Modal(modal);
         bootstrapModal.show();
@@ -1112,8 +1104,6 @@ class ResultsManager {
                 throw new Error('执行ID不存在，请重新执行工具');
             }
             
-            showLoading('加载CSV文件内容...');
-            
             const response = await apiService.viewOutputFile(this.currentExecutionId, filePath);
             
             if (!response || response.content === undefined) {
@@ -1123,10 +1113,7 @@ class ResultsManager {
             // 解析CSV内容
             this.showCsvModal(fileName, response.content);
             
-            hideLoading();
-            
         } catch (error) {
-            hideLoading();
             console.error('查看CSV文件失败:', error);
             showToast('查看CSV文件失败: ' + error.message, 'error');
         }

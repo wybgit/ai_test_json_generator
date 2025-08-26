@@ -103,17 +103,13 @@ class HistoryManager {
         
         try {
             this.isLoading = true;
-            showLoading('加载历史记录...');
             
             // 获取所有输出目录
             const response = await apiService.get('/history/executions');
             this.historyData = response.executions || [];
             this.isLoaded = true;
             
-            hideLoading();
-            
         } catch (error) {
-            hideLoading();
             console.error('加载历史记录失败:', error);
             
             // 如果API不存在，从本地存储加载
@@ -220,11 +216,9 @@ class HistoryManager {
             this.createHistoryModal();
         }
 
-        // 如果还未加载过，显示loading并加载
+        // 如果还未加载过，则加载
         if (!this.isLoaded && !this.isLoading) {
-            showLoading('加载历史记录...');
             await this.loadHistoryData();
-            hideLoading();
         }
 
         this.renderHistory();
