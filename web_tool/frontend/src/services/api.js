@@ -134,7 +134,10 @@ class APIService {
 
     // 获取CSV文件内容
     async getCsvContent(csvName) {
-        return this.get(`/csv-files/${csvName}`);
+        console.log('请求CSV内容:', csvName);
+        const result = await this.get(`/csv-files/${csvName}`);
+        console.log('CSV内容响应:', result);
+        return result;
     }
 
     // 上传模板

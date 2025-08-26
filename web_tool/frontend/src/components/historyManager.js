@@ -545,7 +545,14 @@ class HistoryManager {
             }
 
             // 显示结果
-            window.resultsManager.showResults(executionId, execution.files);
+            if (window.resultsManager && window.resultsManager.showResults) {
+                // 确保files是数组格式
+                const files = Array.isArray(execution.files) ? execution.files : [];
+                window.resultsManager.showResults(executionId, files);
+            } else {
+                console.error('结果管理器未初始化');
+                showToast('结果管理器未初始化', 'error');
+            }
             
         } catch (error) {
             console.error('查看执行结果失败:', error);
@@ -754,7 +761,7 @@ class HistoryManager {
         );
 
         // 临时更新显示
-        const originalData = this.historyData;
+        const originalData = [...this.historyData]; // 创建副本
         this.historyData = filteredData;
         this.renderHistory();
         this.historyData = originalData; // 恢复原始数据

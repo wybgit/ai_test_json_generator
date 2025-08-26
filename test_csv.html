@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV测试页面</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .result { margin: 10px 0; padding: 10px; background: #f5f5f5; }
+        .error { background: #ffe6e6; color: #cc0000; }
+        .success { background: #e6ffe6; color: #006600; }
+    </style>
+</head>
+<body>
+    <h1>CSV功能测试</h1>
+    
+    <div class="test-section">
+        <h2>测试1: 获取CSV文件列表</h2>
+        <button onclick="testGetCsvFiles()">获取CSV文件列表</button>
+        <div id="csvFiles" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试2: 读取特定CSV文件</h2>
+        <button onclick="testGetCsvContent()">读取cascade_test_points.csv</button>
+        <div id="csvContent" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试3: 模拟前端逻辑</h2>
+        <button onclick="testFrontendLogic()">模拟loadCsvFile方法</button>
+        <div id="frontendTest" class="result"></div>
+    </div>
+
+    <script>
+        const apiService = {
+            baseURL: 'http://localhost:5000/api',
+            async get(endpoint) {
+                const url = `${this.baseURL}${endpoint}`;
+                console.log('发起请求:', url);
+                const response = await fetch(url);
+                const data = await response.json();
+                console.log('响应数据:', data);
+                return data;
+            },
+            async getCsvFiles() {
+                return this.get('/csv-files');
+            },
+            async getCsvContent(csvName) {
+                return this.get(`/csv-files/${csvName}`);
+            }
+        };
+
+        async function testGetCsvFiles() {
+            const resultDiv = document.getElementById('csvFiles');
+            try {
+                const response = await apiService.getCsvFiles();
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>成功:</strong> 
+                    <pre>${JSON.stringify(response, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `<strong>错误:</strong> ${error.message}`;
+            }
+        }
+
+        async function testGetCsvContent() {
+            const resultDiv = document.getElementById('csvContent');
+            try {
+                const response = await apiService.getCsvContent('cascade_test_points.csv');
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>成功:</strong> 
+                    <pre>${JSON.stringify(response, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `<strong>错误:</strong> ${error.message}`;
+            }
+        }
+
+        async function testFrontendLogic() {
+            const resultDiv = document.getElementById('frontendTest');
+            try {
+                // 模拟 templateManager 的 loadCsvFile 方法逻辑
+                const csvFileName = 'cascade_test_points.csv';
+                console.log('开始加载CSV文件:', csvFileName);
+                
+                const response = await apiService.getCsvContent(csvFileName);
+                console.log('原始API响应:', response);
+                
+                // 验证响应
+                if (!response || !response.data) {
+                    console.error('响应验证失败:', {
+                        response: response,
+                        hasResponse: !!response,
+                        hasData: response ? !!response.data : false,
+                        dataType: response ? typeof response.data : 'N/A',
+                        dataLength: response && response.data ? response.data.length : 'N/A'
+                    });
+                    throw new Error('CSV文件内容为空或无效');
+                }
+                
+                // 验证data是数组且非空
+                if (!Array.isArray(response.data) || response.data.length === 0) {
+                    console.error('CSV数据格式错误:', {
+                        isArray: Array.isArray(response.data),
+                        length: response.data ? response.data.length : 'N/A',
+                        data: response.data
+                    });
+                    throw new Error('CSV数据格式不正确或为空');
+                }
+                
+                const csvData = response.data;
+                console.log('CSV数据已设置:', {
+                    data: csvData,
+                    length: csvData.length,
+                    firstRow: csvData[0]
+                });
+                
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>前端逻辑测试成功!</strong><br>
+                    数据行数: ${csvData.length}<br>
+                    列名: ${Object.keys(csvData[0]).join(', ')}<br>
+                    <strong>CSV数据:</strong>
+                    <pre>${JSON.stringify(csvData, null, 2)}</pre>
+                `;
+                
+            } catch (error) {
+                console.error('前端逻辑测试失败:', error);
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `<strong>前端逻辑错误:</strong> ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

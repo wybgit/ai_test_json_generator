@@ -60,6 +60,12 @@ class ResultsManager {
             searchInput.addEventListener('input', (e) => {
                 this.handleSearch(e.target.value);
             });
+            
+            // 预设onnx和json搜索内容
+            searchInput.setAttribute('placeholder', '搜索文件... (例如: onnx, json)');
+            
+            // 添加搜索建议
+            this.setupSearchSuggestions(searchInput);
         }
     }
 
@@ -80,6 +86,9 @@ class ResultsManager {
             
             // 渲染当前视图
             this.renderCurrentView();
+            
+            // 更新搜索建议
+            this.updateSearchSuggestions();
             
             // 平滑滚动到结果区域
             setTimeout(() => {
@@ -323,23 +332,7 @@ class ResultsManager {
         });
     }
 
-    getFileIcon(fileName) {
-        const extension = fileName.split('.').pop().toLowerCase();
-        const iconMap = {
-            'json': 'file-code',
-            'txt': 'file-alt',
-            'csv': 'file-csv',
-            'xml': 'file-code',
-            'html': 'file-code',
-            'pdf': 'file-pdf',
-            'zip': 'file-archive',
-            'onnx': 'file-code',
-            'py': 'file-code',
-            'js': 'file-code',
-            'log': 'file-alt'
-        };
-        return iconMap[extension] || 'file';
-    }
+
 
     async viewFile(filePath, fileName) {
         try {
@@ -347,6 +340,18 @@ class ResultsManager {
             
             if (!this.currentExecutionId) {
                 throw new Error('执行ID不存在，请重新执行工具');
+            }
+
+            // 检查是否是ONNX文件
+            if (fileName.toLowerCase().endsWith('.onnx')) {
+                this.viewOnnxFile(filePath, fileName);
+                return;
+            }
+            
+            // 检查是否是CSV文件
+            if (fileName.toLowerCase().endsWith('.csv')) {
+                this.viewCsvFile(filePath, fileName);
+                return;
             }
             
             showLoading('加载文件内容...');
@@ -925,6 +930,343 @@ class ResultsManager {
                 this.viewFile(filePath, fileName);
             });
         });
+    }
+
+    // 查看ONNX文件
+    viewOnnxFile(filePath, fileName) {
+        try {
+            console.log('预览ONNX文件:', { filePath, fileName });
+            
+            // 构建文件下载URL
+            const downloadUrl = `http://localhost:5000/api/download/${this.currentExecutionId}/${filePath}`;
+            
+            // 设置文件名
+            const onnxFileNameElement = document.getElementById('onnxFileName');
+            if (onnxFileNameElement) {
+                onnxFileNameElement.textContent = fileName;
+            }
+
+            // 设置Netron查看器
+            this.setupNetronViewer(downloadUrl, fileName);
+            
+            // 显示ONNX预览模态框
+            const modal = new bootstrap.Modal(document.getElementById('onnxPreviewModal'));
+            modal.show();
+            
+        } catch (error) {
+            console.error('预览ONNX文件失败:', error);
+            showToast('预览ONNX文件失败: ' + error.message, 'error');
+        }
+    }
+
+    // 设置Netron查看器
+    setupNetronViewer(fileUrl, fileName) {
+        const iframe = document.getElementById('netronViewer');
+        const openInNetronBtn = document.getElementById('openInNetronBtn');
+        
+        if (iframe) {
+            // 使用在线Netron服务预览ONNX模型
+            // Netron支持通过URL参数加载远程文件
+            const netronUrl = `https://netron.app/?url=${encodeURIComponent(fileUrl)}`;
+            iframe.src = netronUrl;
+        }
+
+        // 设置在新窗口打开按钮
+        if (openInNetronBtn) {
+            openInNetronBtn.onclick = () => {
+                const netronUrl = `https://netron.app/?url=${encodeURIComponent(fileUrl)}`;
+                window.open(netronUrl, '_blank', 'width=1200,height=800');
+            };
+        }
+    }
+
+    // 获取文件类型图标（更新以支持ONNX和CSV）
+    getFileIcon(fileName) {
+        const extension = fileName.split('.').pop().toLowerCase();
+        const iconMap = {
+            'json': 'file-code',
+            'txt': 'file-alt',
+            'csv': 'table',  // 使用表格图标
+            'log': 'file-alt',
+            'onnx': 'project-diagram'  // 为ONNX文件添加特殊图标
+        };
+        return iconMap[extension] || 'file';
+    }
+
+    // 设置搜索建议
+    setupSearchSuggestions(searchInput) {
+        const suggestions = document.getElementById('searchSuggestions');
+        if (!suggestions) return;
+
+        // 聚焦时显示建议
+        searchInput.addEventListener('focus', () => {
+            suggestions.style.display = 'block';
+        });
+
+        // 失焦时隐藏建议（延迟以允许点击建议）
+        searchInput.addEventListener('blur', () => {
+            setTimeout(() => {
+                suggestions.style.display = 'none';
+            }, 200);
+        });
+
+        // 点击搜索标签
+        suggestions.querySelectorAll('.search-tag').forEach(tag => {
+            tag.addEventListener('click', () => {
+                const searchTerm = tag.dataset.search;
+                searchInput.value = searchTerm;
+                this.handleSearch(searchTerm);
+                suggestions.style.display = 'none';
+                searchInput.focus();
+            });
+        });
+
+        // ESC键隐藏建议
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                suggestions.style.display = 'none';
+                searchInput.blur();
+            }
+        });
+
+        // 点击文档其他地方隐藏建议
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !suggestions.contains(e.target)) {
+                suggestions.style.display = 'none';
+            }
+        });
+    }
+
+    // 更新搜索建议
+    updateSearchSuggestions() {
+        const suggestions = document.getElementById('searchSuggestions');
+        if (!suggestions || this.resultFiles.length === 0) return;
+
+        // 统计文件类型
+        const fileTypeCount = {};
+        this.resultFiles.forEach(file => {
+            const extension = file.name.split('.').pop().toLowerCase();
+            fileTypeCount[extension] = (fileTypeCount[extension] || 0) + 1;
+        });
+
+        // 动态更新搜索标签
+        const container = suggestions.querySelector('.mt-1');
+        if (container) {
+            let tagsHtml = '';
+            
+            // 按文件数量排序，显示最常见的文件类型
+            const sortedTypes = Object.entries(fileTypeCount)
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 6); // 最多显示6个
+            
+            sortedTypes.forEach(([extension, count]) => {
+                const badgeClass = this.getFileTypeBadgeClass(extension);
+                tagsHtml += `
+                    <span class="badge ${badgeClass} me-1 search-tag" 
+                          data-search="${extension}" 
+                          style="cursor: pointer;" 
+                          title="${count} 个 ${extension} 文件">
+                        ${extension} (${count})
+                    </span>
+                `;
+            });
+            
+            container.innerHTML = tagsHtml;
+            
+            // 重新绑定事件
+            container.querySelectorAll('.search-tag').forEach(tag => {
+                tag.addEventListener('click', () => {
+                    const searchTerm = tag.dataset.search;
+                    const searchInput = document.getElementById('fileSearchInput');
+                    if (searchInput) {
+                        searchInput.value = searchTerm;
+                        this.handleSearch(searchTerm);
+                        suggestions.style.display = 'none';
+                        searchInput.focus();
+                    }
+                });
+            });
+        }
+    }
+
+    // 获取文件类型对应的badge样式
+    getFileTypeBadgeClass(extension) {
+        const classMap = {
+            'json': 'bg-success',
+            'onnx': 'bg-primary', 
+            'txt': 'bg-info',
+            'log': 'bg-warning',
+            'csv': 'bg-secondary',
+            'xml': 'bg-danger'
+        };
+        return classMap[extension] || 'bg-dark';
+    }
+
+    // 查看CSV文件
+    async viewCsvFile(filePath, fileName) {
+        try {
+            console.log('开始查看CSV文件:', { filePath, fileName });
+            
+            if (!this.currentExecutionId) {
+                throw new Error('执行ID不存在，请重新执行工具');
+            }
+            
+            showLoading('加载CSV文件内容...');
+            
+            const response = await apiService.viewOutputFile(this.currentExecutionId, filePath);
+            
+            if (!response || response.content === undefined) {
+                throw new Error('CSV文件内容为空或无效');
+            }
+            
+            // 解析CSV内容
+            this.showCsvModal(fileName, response.content);
+            
+            hideLoading();
+            
+        } catch (error) {
+            hideLoading();
+            console.error('查看CSV文件失败:', error);
+            showToast('查看CSV文件失败: ' + error.message, 'error');
+        }
+    }
+
+    // 显示CSV模态框
+    showCsvModal(fileName, csvContent) {
+        // 解析CSV内容
+        const lines = csvContent.trim().split('\n');
+        if (lines.length === 0) {
+            showToast('CSV文件为空', 'warning');
+            return;
+        }
+
+        // 解析CSV数据
+        const csvData = this.parseCsvContent(csvContent);
+        if (!csvData || csvData.length === 0) {
+            showToast('无法解析CSV文件内容', 'error');
+            return;
+        }
+
+        // 重用现有的CSV查看模态框
+        const modal = document.getElementById('csvViewModal');
+        const modalTitle = document.getElementById('csvModalFileName');
+        const modalContent = document.getElementById('csvModalContent');
+        const modalTable = document.getElementById('csvModalTable');
+        
+        if (!modal || !modalTitle || !modalContent || !modalTable) {
+            showToast('CSV查看模态框未找到', 'error');
+            return;
+        }
+
+        // 设置文件名
+        modalTitle.textContent = fileName;
+
+        // 更新统计信息
+        const totalRows = csvData.length;
+        const totalColumns = totalRows > 0 ? Object.keys(csvData[0]).length : 0;
+        
+        document.getElementById('csvTotalRows').textContent = totalRows;
+        document.getElementById('csvTotalColumns').textContent = totalColumns;
+        document.getElementById('csvMatchedVars').textContent = '-';
+        document.getElementById('csvMissingVars').textContent = '-';
+
+        // 渲染CSV表格
+        this.renderCsvResultTable(csvData, modalTable);
+
+        // 显示模态框
+        const bootstrapModal = new bootstrap.Modal(modal);
+        bootstrapModal.show();
+    }
+
+    // 解析CSV内容
+    parseCsvContent(csvContent) {
+        try {
+            const lines = csvContent.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            // 解析头部
+            const headers = this.parseCsvLine(lines[0]);
+            const data = [];
+
+            // 解析数据行
+            for (let i = 1; i < lines.length; i++) {
+                const values = this.parseCsvLine(lines[i]);
+                if (values.length === headers.length) {
+                    const row = {};
+                    headers.forEach((header, index) => {
+                        row[header] = values[index];
+                    });
+                    data.push(row);
+                }
+            }
+
+            return data;
+        } catch (error) {
+            console.error('解析CSV内容失败:', error);
+            return [];
+        }
+    }
+
+    // 解析CSV行（简单的CSV解析器）
+    parseCsvLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i++; // 跳过下一个引号
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                result.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        
+        result.push(current.trim());
+        return result;
+    }
+
+    // 渲染CSV结果表格
+    renderCsvResultTable(csvData, table) {
+        if (!csvData || csvData.length === 0) {
+            table.innerHTML = '<tr><td colspan="100%" class="text-center text-muted">没有数据</td></tr>';
+            return;
+        }
+
+        const columns = Object.keys(csvData[0]);
+        
+        // 创建表格头部
+        const thead = `
+            <thead class="table-dark sticky-top">
+                <tr>
+                    <th scope="col" style="width: 60px;">#</th>
+                    ${columns.map(col => `<th scope="col">${escapeHtml(col)}</th>`).join('')}
+                </tr>
+            </thead>
+        `;
+
+        // 创建表格主体
+        const tbody = `
+            <tbody>
+                ${csvData.map((row, index) => `
+                    <tr class="csv-row" data-row-index="${index}">
+                        <th scope="row" class="text-muted">${index + 1}</th>
+                        ${columns.map(col => `<td>${escapeHtml(row[col] || '')}</td>`).join('')}
+                    </tr>
+                `).join('')}
+            </tbody>
+        `;
+
+        table.innerHTML = thead + tbody;
     }
 }
 

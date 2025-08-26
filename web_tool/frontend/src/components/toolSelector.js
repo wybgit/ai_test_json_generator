@@ -129,10 +129,10 @@ class ToolSelector {
         if (configSection) {
             configSection.style.display = 'block';
             
-            // 平滑滚动到配置区域
-            setTimeout(() => {
-                scrollToElement(configSection, 100);
-            }, 100);
+            // 移除自动滚动，避免页面跳转
+            // setTimeout(() => {
+            //     scrollToElement(configSection, 100);
+            // }, 100);
         }
     }
 

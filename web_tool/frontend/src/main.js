@@ -77,7 +77,6 @@ class AIToolsApp {
         const coreComponents = [
             'toolSelector',
             'templateManager', 
-            'csvManager',
             'executionManager',
             'resultsManager'
         ];
@@ -211,7 +210,6 @@ class AIToolsApp {
             timestamp: new Date().toISOString(),
             tool: window.toolSelector?.getSelectedTool(),
             template: window.templateManager?.exportConfig(),
-            csv: window.csvManager?.exportConfig(),
             execution: {
                 execution_id: window.executionManager?.getCurrentExecutionId()
             }
@@ -231,10 +229,6 @@ class AIToolsApp {
                 window.templateManager?.importConfig(config.template);
             }
 
-            if (config.csv) {
-                window.csvManager?.importConfig(config.csv);
-            }
-
             showToast('配置导入成功', 'success');
         } catch (error) {
             console.error('导入配置失败:', error);
@@ -252,7 +246,6 @@ class AIToolsApp {
         // 重置所有组件
         window.toolSelector?.refresh();
         window.templateManager?.refresh();
-        window.csvManager?.refresh();
         window.executionManager?.reset();
         window.resultsManager?.clear();
 
@@ -288,7 +281,6 @@ if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
         components: {
             toolSelector: () => window.toolSelector,
             templateManager: () => window.templateManager,
-            csvManager: () => window.csvManager,
             executionManager: () => window.executionManager,
             resultsManager: () => window.resultsManager,
             historyManager: () => window.historyManager

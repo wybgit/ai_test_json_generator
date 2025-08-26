@@ -90,12 +90,7 @@ class ExecutionManager {
                 return; // validateTemplate 现在返回布尔值并显示UI错误
             }
 
-            // 验证数据
-            if (!window.csvManager?.validateData()) {
-                return; // validateData 会抛出异常并显示错误消息
-            }
-
-            // 构建执行参数
+            // 构建执行参数（包括CSV数据）
             const params = this.buildExecutionParams();
             
             // 开始执行
@@ -114,8 +109,8 @@ class ExecutionManager {
     buildExecutionParams() {
         const templateContent = window.templateManager?.getTemplateContent() || '';
         const variableValues = window.templateManager?.getVariableValues() || {};
-        const csvData = window.csvManager?.getCsvData() || [];
-        const useCSV = window.csvManager?.isUsingCSV() || false;
+        const csvData = window.templateManager?.getCsvData() || [];
+        const useCSV = window.templateManager?.isUsingCSV() || false;
         const maxRetries = document.getElementById('maxRetries')?.value || 3;
 
         const params = {
@@ -355,13 +350,13 @@ class ExecutionManager {
         if (executionLogCard) {
             executionLogCard.style.display = 'block';
             
-            // 平滑滚动到工具配置区域（因为日志现在在右侧）
-            const toolConfigSection = document.getElementById('toolConfigSection');
-            if (toolConfigSection) {
-                setTimeout(() => {
-                    scrollToElement(toolConfigSection, 100);
-                }, 100);
-            }
+            // 移除自动滚动，避免页面跳转
+            // const toolConfigSection = document.getElementById('toolConfigSection');
+            // if (toolConfigSection) {
+            //     setTimeout(() => {
+            //         scrollToElement(toolConfigSection, 100);
+            //     }, 100);
+            // }
         }
     }
 
@@ -369,12 +364,18 @@ class ExecutionManager {
         const statusElement = document.getElementById('executionStatus');
         if (!statusElement) return;
 
-        // 清除所有状态类
+        // 清除所有状态类和动画类
         statusElement.className = 'badge';
+        statusElement.classList.remove('executing-dots', 'executing-spinner');
         
         // 添加新状态类
         statusElement.classList.add(`status-${status}`);
         statusElement.textContent = text;
+        
+        // 为运行状态添加动态效果
+        if (status === 'running') {
+            statusElement.classList.add('executing-dots');
+        }
     }
 
     async showResults(data) {
@@ -496,6 +497,13 @@ class ExecutionManager {
         const activityElement = document.getElementById('currentActivity');
         if (activityElement) {
             activityElement.textContent = activity;
+            
+            // 根据活动状态添加动态效果
+            if (this.isExecuting) {
+                activityElement.classList.add('executing-animation');
+            } else {
+                activityElement.classList.remove('executing-animation');
+            }
         }
     }
 
@@ -567,6 +575,21 @@ class ExecutionManager {
                     console.warn('历史管理器未初始化，跳过添加历史记录');
                 }
             }, 500);
+        }
+    }
+
+    // 停止执行
+    stopExecution() {
+        this.isExecuting = false;
+        this.stopTimer();
+        this.updateExecutionButtons();
+        this.updateExecutionStatus('stopped', '已停止');
+        this.updateCurrentActivity('执行已停止');
+        this.addLogLine('执行已停止', 'warning');
+        
+        // 通知WebSocket停止执行
+        if (this.currentExecutionId) {
+            wsService.stopExecution(this.currentExecutionId);
         }
     }
 }

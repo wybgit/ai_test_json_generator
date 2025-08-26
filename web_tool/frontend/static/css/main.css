@@ -120,16 +120,73 @@ body {
     margin-bottom: 0.5rem;
 }
 
-/* 模板预览样式 */
-#templatePreview {
-    background-color: #2d3748;
-    color: #e2e8f0;
-    border: 1px solid #4a5568;
-    border-radius: 0.375rem;
-    max-height: 400px;
-    overflow-y: auto;
-    font-size: 0.875rem;
+/* 下拉菜单与自定义输入组合样式 */
+.dropdown-with-custom .input-group {
+    position: relative;
 }
+
+.dropdown-with-custom .form-select {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    z-index: 3;
+}
+
+.dropdown-with-custom .custom-input {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 0;
+    z-index: 2;
+    transition: all 0.3s ease;
+}
+
+.dropdown-with-custom .custom-input.d-none {
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+}
+
+.dropdown-with-custom .custom-input:not(.d-none) {
+    flex: 1;
+    min-width: 150px;
+}
+
+.dropdown-with-custom .form-select:focus {
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    z-index: 4;
+}
+
+.dropdown-with-custom .custom-input:focus {
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    z-index: 4;
+}
+
+/* 验证状态样式 */
+.dropdown-with-custom .form-select.is-invalid {
+    border-color: #dc3545;
+}
+
+.dropdown-with-custom .custom-input.is-invalid {
+    border-color: #dc3545;
+}
+
+.dropdown-with-custom .form-select.is-valid {
+    border-color: #28a745;
+}
+
+.dropdown-with-custom .custom-input.is-valid {
+    border-color: #28a745;
+}
+
+.dropdown-with-custom .invalid-feedback {
+    width: 100%;
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: #dc3545;
+}
+
+
 
 /* CSV表格样式 */
 #csvTable {
@@ -161,6 +218,25 @@ body {
     background-color: #dc3545;
 }
 
+/* 全屏布局优化 */
+.container {
+    max-width: none;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+/* 模板预览高度优化 */
+#templatePreview {
+    max-height: 300px;
+    min-height: 200px;
+}
+
+/* 执行日志区域优化 */
+#executionLogCard .log-container {
+    max-height: 500px;
+    min-height: 300px;
+}
+
 /* 响应式样式 */
 @media (max-width: 768px) {
     .tool-card {
@@ -174,6 +250,20 @@ body {
     
     #templateContent {
         font-size: 0.875rem;
+    }
+
+    .container {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+}
+
+/* 大屏幕优化 */
+@media (min-width: 1400px) {
+    .container {
+        max-width: none;
+        padding-left: 2rem;
+        padding-right: 2rem;
     }
 }
 
@@ -548,6 +638,44 @@ code[class*="language-"] {
     color: #155724;
 }
 
+/* ONNX预览模态框样式 */
+#onnxPreviewModal .modal-dialog {
+    max-width: 95vw;
+    margin: 0.5rem auto;
+}
+
+#onnxPreviewModal .modal-content {
+    height: calc(100vh - 1rem);
+}
+
+#onnxViewerContainer {
+    position: relative;
+    background-color: #f8f9fa;
+    border-radius: 0.375rem;
+}
+
+#netronViewer {
+    border-radius: 0.375rem;
+}
+
+/* 模板预览模态框样式 */
+#templatePreviewModal .modal-body {
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+}
+
+#originalTemplateContent,
+#previewedTemplateContent {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+}
+
+#previewVariableValues .border-bottom:last-child {
+    border-bottom: none !important;
+}
+
 /* 历史记录样式 */
 .history-toolbar {
     background-color: #f8f9fa;
@@ -656,4 +784,70 @@ code[class*="language-"] {
     #executionLogCard .log-container {
         max-height: 300px;
     }
+}
+
+/* 动态执行效果 */
+.executing-animation {
+    position: relative;
+}
+
+.executing-animation::after {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: #007bff;
+    animation: executing-pulse 1.5s infinite;
+    margin-left: 8px;
+}
+
+@keyframes executing-pulse {
+    0%, 20% {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.2);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+}
+
+.executing-dots {
+    display: inline-block;
+}
+
+.executing-dots::after {
+    content: '';
+    animation: executing-dots 2s infinite;
+}
+
+@keyframes executing-dots {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+    100% { content: ''; }
+}
+
+/* 旋转加载动画 */
+.executing-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
