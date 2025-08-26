@@ -1,0 +1,16 @@
+[Unit]
+Description=AI Tools Web Backend
+After=network.target
+
+[Service]
+Type=simple
+User=$(whoami)
+WorkingDirectory=/home/wyb/AI_tools/ai_test_json_generator/web_tool
+ExecStart=/home/wyb/AI_tools/ai_test_json_generator/web_tool/start_backend_production.sh
+Restart=always
+RestartSec=5
+Environment=FLASK_ENV=production
+Environment=FLASK_DEBUG=False
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+{
+    "backend": {
+        "host": "172.28.51.238",
+        "port": 5000,
+        "protocol": "http"
+    },
+    "frontend": {
+        "host": "172.28.51.238",
+        "port": 8080,
+        "protocol": "http"
+    }
+}

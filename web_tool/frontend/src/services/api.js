@@ -1,7 +1,20 @@
 // API服务模块
 class APIService {
     constructor() {
-        this.baseURL = 'http://localhost:5000/api';
+        // 动态获取后端地址
+        this.baseURL = window.appConfig ? window.appConfig.getApiBaseUrl() : 'http://localhost:5000/api';
+        console.log('API服务初始化，后端地址:', this.baseURL);
+    }
+
+    // 更新后端地址
+    updateBaseUrl() {
+        if (window.appConfig) {
+            const newBaseURL = window.appConfig.getApiBaseUrl();
+            if (this.baseURL !== newBaseURL) {
+                this.baseURL = newBaseURL;
+                console.log('API服务地址已更新:', this.baseURL);
+            }
+        }
     }
 
     // 通用请求方法
@@ -90,6 +103,9 @@ class APIService {
 
     // 文件上传
     async uploadFile(endpoint, file) {
+        // 确保使用最新的后端地址
+        this.updateBaseUrl();
+        
         const formData = new FormData();
         formData.append('file', file);
 
@@ -175,11 +191,15 @@ class APIService {
 
     // 下载文件URL
     getDownloadUrl(filePath) {
+        // 确保使用最新的后端地址
+        this.updateBaseUrl();
         return `${this.baseURL}/download/${filePath}`;
     }
 
     // 下载执行结果ZIP
     getDownloadZipUrl(executionId) {
+        // 确保使用最新的后端地址
+        this.updateBaseUrl();
         return `${this.baseURL}/download-zip/${executionId}`;
     }
 

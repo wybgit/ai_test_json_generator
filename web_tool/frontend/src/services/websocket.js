@@ -16,8 +16,18 @@ class WebSocketService {
     }
 
     // 连接WebSocket
-    connect(url = 'http://localhost:5000') {
+    connect(url) {
         try {
+            // 如果没有提供URL，从配置中获取
+            if (!url && window.appConfig) {
+                url = window.appConfig.getWebSocketUrl();
+            }
+            // 默认回退到localhost
+            if (!url) {
+                url = 'http://localhost:5000';
+            }
+            
+            console.log('WebSocket连接地址:', url);
             this.socket = io(url);
             this.setupEventListeners();
         } catch (error) {

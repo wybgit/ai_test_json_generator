@@ -938,7 +938,8 @@ class ResultsManager {
             console.log('预览ONNX文件:', { filePath, fileName });
             
             // 构建文件下载URL
-            const downloadUrl = `http://localhost:5000/api/download/${this.currentExecutionId}/${filePath}`;
+            const downloadBaseUrl = window.appConfig ? window.appConfig.getDownloadBaseUrl() : 'http://localhost:5000/api';
+            const downloadUrl = `${downloadBaseUrl}/download/${this.currentExecutionId}/${filePath}`;
             
             // 设置文件名
             const onnxFileNameElement = document.getElementById('onnxFileName');
