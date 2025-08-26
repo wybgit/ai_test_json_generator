@@ -4,12 +4,12 @@ class Config {
         this.config = {
             // 默认配置
             backend: {
-                host: 'localhost',
+                host: '100.102.198.27',
                 port: 5000,
                 protocol: 'http'
             },
             frontend: {
-                host: 'localhost', 
+                host: '100.102.198.27', 
                 port: 8080,
                 protocol: 'http'
             }
@@ -116,12 +116,12 @@ class Config {
     resetConfig() {
         this.config = {
             backend: {
-                host: 'localhost',
+                host: '100.102.198.27',
                 port: 5000,
                 protocol: 'http'
             },
             frontend: {
-                host: 'localhost',
+                host: '100.102.198.27',
                 port: 8080,
                 protocol: 'http'
             }

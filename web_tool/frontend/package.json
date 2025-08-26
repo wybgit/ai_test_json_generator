@@ -4,9 +4,10 @@
   "description": "AI Tools Web Interface Frontend",
   "main": "index.js",
   "scripts": {
-    "dev": "python -m http.server 8080",
+    "dev": "python server.py",
     "build": "echo 'Build complete'",
-    "start": "python -m http.server 8080"
+    "start": "python server.py",
+    "start-default": "python -m http.server 8080"
   },
   "keywords": ["ai", "tools", "web", "interface"],
   "author": "AI Tools Team",

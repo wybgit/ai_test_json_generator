@@ -1,0 +1,17 @@
+{
+    "network": {
+        "bind_ip": "100.102.198.27",
+        "backend_port": 5000,
+        "frontend_port": 8080
+    },
+    "backend": {
+        "host": "100.102.198.27",
+        "port": 5000,
+        "protocol": "http"
+    },
+    "frontend": {
+        "host": "100.102.198.27",
+        "port": 8080,
+        "protocol": "http"
+    }
+}

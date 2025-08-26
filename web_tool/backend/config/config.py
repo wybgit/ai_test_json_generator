@@ -1,10 +1,15 @@
 import os
+import json
 from pathlib import Path
 
 class Config:
     # 基础配置
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
     DEBUG = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
+    
+    # 网络配置
+    BIND_IP = '100.102.198.27'  # 默认绑定IP
+    BIND_PORT = 5000  # 默认绑定端口
     
     # 项目路径配置
     BASE_DIR = Path(__file__).parent.parent.parent
@@ -37,8 +42,29 @@ class Config:
     }
 
     @staticmethod
+    def load_network_config():
+        """从配置文件加载网络配置"""
+        config_file = Path(__file__).parent.parent / 'config.json'
+        try:
+            if config_file.exists():
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                    
+                # 更新网络配置
+                if 'network' in config_data:
+                    Config.BIND_IP = config_data['network'].get('bind_ip', Config.BIND_IP)
+                    Config.BIND_PORT = config_data['network'].get('backend_port', Config.BIND_PORT)
+                    
+                print(f"网络配置已加载: IP={Config.BIND_IP}, Port={Config.BIND_PORT}")
+        except Exception as e:
+            print(f"加载网络配置失败，使用默认配置: {e}")
+
+    @staticmethod
     def init_app(app):
         """初始化应用配置"""
+        # 加载网络配置
+        Config.load_network_config()
+        
         # 确保目录存在
         Config.UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
         Config.OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
