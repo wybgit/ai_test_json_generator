@@ -7,7 +7,43 @@ class TemplateManager {
         this.variableValues = {};
         this.useCSV = false;
         this.csvData = [];
+        this.loadingTimeouts = new Map(); // 存储所有loading超时定时器
         this.init();
+    }
+
+    // 安全的loading显示方法，带超时保护
+    safeShowLoading(message, timeoutMs = 3000) {
+        const loadingId = Date.now() + Math.random(); // 生成唯一ID
+        
+        showLoading(message);
+        
+        // 设置超时定时器
+        const timeoutId = setTimeout(() => {
+            console.warn(`Loading超时: ${message}, 强制隐藏loading`);
+            hideLoading();
+            this.loadingTimeouts.delete(loadingId);
+            showToast('操作超时，请检查网络连接', 'warning');
+        }, timeoutMs);
+        
+        this.loadingTimeouts.set(loadingId, timeoutId);
+        
+        return loadingId;
+    }
+    
+    // 安全的loading隐藏方法
+    safeHideLoading(loadingId) {
+        if (loadingId && this.loadingTimeouts.has(loadingId)) {
+            clearTimeout(this.loadingTimeouts.get(loadingId));
+            this.loadingTimeouts.delete(loadingId);
+        }
+        hideLoading();
+    }
+    
+    // 清除所有loading超时定时器
+    clearAllLoadingTimeouts() {
+        this.loadingTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+        this.loadingTimeouts.clear();
+        hideLoading();
     }
 
     async init() {
@@ -146,10 +182,22 @@ class TemplateManager {
 
     async loadTemplate(templateName) {
         let loadingShown = false;
+        let timeoutId = null;
+        
         try {
             console.log('开始加载模板:', templateName);
             showLoading('加载模板中...');
             loadingShown = true;
+            
+            // 设置3秒超时保护
+            timeoutId = setTimeout(() => {
+                console.warn('模板加载超时，强制隐藏loading');
+                if (loadingShown) {
+                    hideLoading();
+                    loadingShown = false;
+                    showToast('模板加载超时，请检查网络连接', 'warning');
+                }
+            }, 3000);
             
             const response = await apiService.getTemplateContent(templateName);
             console.log('API响应成功，内容长度:', response?.content?.length || 0);
@@ -176,8 +224,10 @@ class TemplateManager {
             
             // 确保隐藏loading
             console.log('模板加载完成，隐藏loading');
-            hideLoading();
-            loadingShown = false;
+            if (loadingShown) {
+                hideLoading();
+                loadingShown = false;
+            }
             
             showToast(`模板 "${templateName}" 加载成功`, 'success');
             
@@ -185,19 +235,37 @@ class TemplateManager {
             console.error('加载模板失败:', error);
             showToast('加载模板失败: ' + error.message, 'error');
         } finally {
+            // 清除超时定时器
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            
             // 最终保障：确保loading被隐藏
             if (loadingShown) {
                 console.log('在finally中隐藏loading');
                 hideLoading();
+                loadingShown = false;
             }
         }
     }
 
     async uploadTemplate(file) {
         let loadingShown = false;
+        let timeoutId = null;
+        
         try {
             showLoading('上传模板中...');
             loadingShown = true;
+            
+            // 设置3秒超时保护
+            timeoutId = setTimeout(() => {
+                console.warn('模板上传超时，强制隐藏loading');
+                if (loadingShown) {
+                    hideLoading();
+                    loadingShown = false;
+                    showToast('模板上传超时，请检查网络连接', 'warning');
+                }
+            }, 3000);
             
             const response = await apiService.uploadTemplate(file);
             
@@ -211,17 +279,25 @@ class TemplateManager {
                 await this.loadTemplate(response.filename);
             }
 
-            hideLoading();
-            loadingShown = false;
+            if (loadingShown) {
+                hideLoading();
+                loadingShown = false;
+            }
             showToast('模板上传成功', 'success');
             
         } catch (error) {
             console.error('上传模板失败:', error);
             showToast('上传模板失败: ' + error.message, 'error');
         } finally {
+            // 清除超时定时器
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            
             // 最终保障：确保loading被隐藏
             if (loadingShown) {
                 hideLoading();
+                loadingShown = false;
             }
         }
     }
@@ -648,7 +724,10 @@ class TemplateManager {
             return;
         }
 
+        let loadingId = null;
         try {
+            loadingId = this.safeShowLoading('生成预览中...');
+            
             // 获取预览内容
             const response = await apiService.previewTemplate(content, this.variableValues);
             
@@ -662,12 +741,17 @@ class TemplateManager {
                 }
             }
 
+            this.safeHideLoading(loadingId);
+            
             // 显示模态框
             const modal = new bootstrap.Modal(document.getElementById('templatePreviewModal'));
             modal.show();
             
         } catch (error) {
             console.error('模板预览失败:', error);
+            if (loadingId) {
+                this.safeHideLoading(loadingId);
+            }
             showToast('模板预览失败: ' + error.message, 'error');
         }
     }
@@ -732,9 +816,21 @@ class TemplateManager {
 
     async loadCsvFile(csvFileName) {
         let loadingShown = false;
+        let timeoutId = null;
+        
         try {
             showLoading('加载CSV文件中...');
             loadingShown = true;
+            
+            // 设置3秒超时保护
+            timeoutId = setTimeout(() => {
+                console.warn('CSV文件加载超时，强制隐藏loading');
+                if (loadingShown) {
+                    hideLoading();
+                    loadingShown = false;
+                    showToast('CSV文件加载超时，请检查网络连接', 'warning');
+                }
+            }, 3000);
             
             const response = await apiService.getCsvContent(csvFileName);
             console.log('原始API响应:', response);
@@ -776,25 +872,45 @@ class TemplateManager {
                 this.renderCsvVariables();
             }
             
-            hideLoading();
-            loadingShown = false;
+            if (loadingShown) {
+                hideLoading();
+                loadingShown = false;
+            }
             showToast(`CSV文件 "${csvFileName}" 加载成功`, 'success');
             
         } catch (error) {
             console.error('加载CSV文件失败:', error);
             showToast('加载CSV文件失败: ' + error.message, 'error');
         } finally {
+            // 清除超时定时器
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            
             if (loadingShown) {
                 hideLoading();
+                loadingShown = false;
             }
         }
     }
 
     async uploadCsvFile(file) {
         let loadingShown = false;
+        let timeoutId = null;
+        
         try {
             showLoading('上传CSV文件中...');
             loadingShown = true;
+            
+            // 设置3秒超时保护
+            timeoutId = setTimeout(() => {
+                console.warn('CSV文件上传超时，强制隐藏loading');
+                if (loadingShown) {
+                    hideLoading();
+                    loadingShown = false;
+                    showToast('CSV文件上传超时，请检查网络连接', 'warning');
+                }
+            }, 3000);
             
             const response = await apiService.uploadCsv(file);
             
@@ -819,16 +935,24 @@ class TemplateManager {
                 }
             }
             
-            hideLoading();
-            loadingShown = false;
+            if (loadingShown) {
+                hideLoading();
+                loadingShown = false;
+            }
             showToast('CSV文件上传成功', 'success');
             
         } catch (error) {
             console.error('上传CSV文件失败:', error);
             showToast('上传CSV文件失败: ' + error.message, 'error');
         } finally {
+            // 清除超时定时器
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            
             if (loadingShown) {
                 hideLoading();
+                loadingShown = false;
             }
         }
     }
@@ -1206,10 +1330,30 @@ class TemplateManager {
             showToast('导出失败: ' + error.message, 'error');
         }
     }
+    
+    // 销毁方法 - 清理所有资源
+    destroy() {
+        this.clearAllLoadingTimeouts();
+        console.log('模板管理器已销毁，所有loading超时定时器已清理');
+    }
 }
 
 // 创建全局模板管理器实例
 window.templateManager = new TemplateManager();
+
+// 页面卸载时清理资源
+window.addEventListener('beforeunload', () => {
+    if (window.templateManager) {
+        window.templateManager.destroy();
+    }
+});
+
+// 页面隐藏时也清理loading（用于单页应用）
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && window.templateManager) {
+        window.templateManager.clearAllLoadingTimeouts();
+    }
+});
 
 // 添加全局调试函数
 window.debugTemplateManager = () => {
